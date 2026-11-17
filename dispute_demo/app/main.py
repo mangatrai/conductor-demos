@@ -1,4 +1,4 @@
-"""Web app: cardholder portal, analyst console and merchant-network simulator.
+"""Web app: the one-screen dispute console (/) and the JSON API behind it.
 
     uvicorn app.main:app --port 8000      (from dispute_demo/)  or  python run.py
 """
@@ -38,18 +38,9 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
 @app.get("/")
-def portal_page():
-    return FileResponse(STATIC / "portal.html")
-
-
-@app.get("/admin")
-def admin_page():
-    return FileResponse(STATIC / "admin.html")
-
-
-@app.get("/merchant")
-def merchant_page():
-    return FileResponse(STATIC / "merchant.html")
+@app.get("/console")
+def console_page():
+    return FileResponse(STATIC / "console.html")
 
 
 # ------------------------------------------------------------------ helpers
@@ -343,18 +334,24 @@ def merchant_respond(case_id: str, body: MerchantReply):
 @app.get("/api/settings")
 def settings():
     return {"networkOutage": db.get_setting("network_outage", "off") == "on",
+            "outageScope": db.get_setting("outage_scope", "all"),
             "merchantAutoReply": db.get_setting("merchant_auto_reply", "on") == "on",
             "workerBug": db.get_setting("worker_bug", "off") == "on"}
 
 
 class SettingsBody(BaseModel):
     networkOutage: bool | None = None
+    outageScope: str | None = None  # "all" (every chargeback fails) or one merchant's name, e.g. "VoltCity Electronics"
     merchantAutoReply: bool | None = None
     workerBug: bool | None = None
 
 
 @app.post("/api/settings")
 def update_settings(body: SettingsBody):
+    if body.outageScope is not None:
+        if not body.outageScope.strip():
+            raise HTTPException(400, "outageScope must be 'all' or a merchant name")
+        db.set_setting("outage_scope", body.outageScope)
     if body.networkOutage is not None:
         db.set_setting("network_outage", "on" if body.networkOutage else "off")
     if body.merchantAutoReply is not None:
@@ -362,6 +359,41 @@ def update_settings(body: SettingsBody):
     if body.workerBug is not None:
         db.set_setting("worker_bug", "on" if body.workerBug else "off")
     return settings()
+
+
+# ------------------------------------------------------------------ one-screen console
+@app.get("/api/console")
+def console_state(cardholderId: str = "CH-1001"):
+    """Everything the console shows, in one poll: the cardholder's latest dispute, its cases with live
+    Orkes state (internal events included), the parent workflow, letters and the demo toggles."""
+    with connect() as c:
+        d = row(c, "SELECT * FROM disputes WHERE cardholder_id=? ORDER BY created_at DESC, id DESC LIMIT 1",
+                cardholderId)
+        letters = rows(c, "SELECT * FROM messages WHERE cardholder_id=? AND dispute_id=? ORDER BY id DESC",
+                       cardholderId, d["id"]) if d else []
+    out = {"settings": settings(), "orkesUi": client().ui_base, "dispute": None}
+    if not d:
+        return out
+    cases = sorted((_with_live(x) for x in _case_rows("AND cs.dispute_id = ?", d["id"])), key=lambda x: x["id"])
+    parent = {"status": None, "startTime": None, "endTime": None}
+    if d.get("workflow_id"):
+        try:
+            wf = live.get_workflow_cached(d["workflow_id"])
+            parent = {"status": wf["status"], "startTime": wf.get("startTime"), "endTime": wf.get("endTime")}
+        except OrkesError as e:
+            parent = {"status": "UNKNOWN", "error": str(e)}
+    out["dispute"] = {**d, "parent": parent, "cases": cases, "letters": letters,
+                      "orkesUrl": f"{client().ui_base}/execution/{d['workflow_id']}" if d.get("workflow_id") else None}
+    return out
+
+
+@app.post("/api/demo/reset")
+def demo_reset():
+    """Same as scripts/reset_demo.py: terminate running dispute workflows, reseed the bank, toggles off."""
+    from scripts.reset_demo import reset
+    terminated = reset(purge=False)
+    live._cache.clear()
+    return {"ok": True, "terminated": terminated}
 
 
 @app.get("/api/meta")

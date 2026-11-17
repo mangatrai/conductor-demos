@@ -1,7 +1,7 @@
 """Merchant / card-network simulator.
 
 Plays the merchant answering chargebacks: a background loop auto-replies for merchants
-whose profile says so; everything else is answered from the simulator page or left to
+whose profile says so; everything else is answered from the console or left to
 expire (the WAIT task's deadline = merchant forfeits, cardholder wins).
 """
 
@@ -46,14 +46,39 @@ def respond(case: dict, decision: str, evidence: str = "", source: str = "simula
     live.invalidate(case["workflow_id"])
 
 
+def nudge_parents() -> None:
+    """When every case of a dispute is closed but its parent is sleeping in the 30 s re-check timer
+    (only happens after a case failed and was retried), end the timer now so the parent re-checks at once.
+    Without this the timer still fires by itself; this just removes up to 30 s of dead air in a live demo."""
+    with connect() as c:
+        ready = rows(c, """
+            SELECT d.id, d.workflow_id FROM disputes d
+            WHERE d.workflow_id IS NOT NULL
+              AND (SELECT COUNT(*) FROM cases cs WHERE cs.dispute_id = d.id AND cs.closed_at IS NOT NULL) >= d.item_count""")
+    for d in ready:
+        wf = live.get_workflow_cached(d["workflow_id"])
+        if wf["status"] != "RUNNING":
+            continue
+        timer = next((t for t in wf.get("tasks", []) if t["taskType"] == "WAIT" and t["status"] == "IN_PROGRESS"
+                      and t["referenceTaskName"].startswith("recheck_cases")), None)
+        if timer:
+            client().complete_task_by_ref(d["workflow_id"], timer["referenceTaskName"], {"nudged": True})
+            live.invalidate(d["workflow_id"])
+            print(f"[merchant-sim] {d['id']}: all cases closed, parent re-checks now", flush=True)
+
+
 def _auto_loop(stop: threading.Event) -> None:
     while not stop.wait(3):
+        try:
+            nudge_parents()
+        except Exception as e:  # keep the loop alive during demos
+            print(f"[merchant-sim] nudge error: {e}", flush=True)
         if db.get_setting("merchant_auto_reply", "on") != "on":
             continue
         try:
             for case in open_case_rows():
                 profile = case.get("sim_behaviour") or ""
-                if profile not in ("auto_accept", "contest", "flaky_contest"):
+                if profile not in ("auto_accept", "contest"):
                     continue  # 'silent' expires, 'manual' waits for a click
                 st = live.live_state(case["workflow_id"])
                 wait = st.get("merchantWait")

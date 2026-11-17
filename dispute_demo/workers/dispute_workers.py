@@ -152,12 +152,12 @@ def file_chargeback(caseId: str, merchantName: str, amount: float, reasonCode: s
     attempt = get_task_context().get_retry_count() + 1
     with connect() as c:
         c.execute("UPDATE cases SET chargeback_attempts=? WHERE id=?", (attempt, caseId))
-    if db.get_setting("network_outage") == "on":
+    # Outage scope: "all" fails every filing; a merchant name fails only that merchant's chargebacks
+    # (the console uses VoltCity), so a live demo shows one case in trouble while the others carry on.
+    scope = db.get_setting("outage_scope", "all")
+    if db.get_setting("network_outage") == "on" and scope in ("all", merchantName):
         log(f"Attempt {attempt}: card network returned HTTP 503 Service Unavailable")
         raise RuntimeError("Card network unavailable (HTTP 503 Service Unavailable)")
-    if merchantProfile.startswith("flaky") and attempt <= 2:
-        log(f"Attempt {attempt}: {merchantName} acquirer timed out after 10s")
-        raise RuntimeError(f"Timeout reaching acquirer for {merchantName} - will retry with backoff")
     ref = f"CB-{uuid.uuid4().hex[:8].upper()}"
     log(f"Attempt {attempt}: chargeback {ref} filed with network for {merchantName} {money(amount)}")
     return {"chargebackRef": ref, "network": "VISA", "filedAt": now_iso(), "attempts": attempt}
@@ -204,7 +204,7 @@ def finalize_case(caseId: str, cardholderId: str, txnId: str, amount: float, dec
 @worker_task(task_definition_name="notify_cardholder")
 def notify_cardholder(cardholderId: str, kind: str, disputeId: str = "", caseId: str = "",
                       data: object = None) -> dict:
-    """Writes a letter to the cardholder's portal inbox (stands in for email/SMS/push)."""
+    """Writes a letter to the cardholder's in-app inbox (stands in for email/SMS/push)."""
     d = data or {}
     if kind == "RECEIVED":
         subject = f"We received your dispute {disputeId}"

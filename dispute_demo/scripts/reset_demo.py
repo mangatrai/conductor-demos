@@ -28,19 +28,19 @@ def executions(o, wf_type: str, status: str | None = None) -> list[dict]:
         start += 100
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--purge", action="store_true", help="remove dispute executions from Orkes")
-    args = ap.parse_args()
+def reset(purge: bool = False) -> int:
+    """Terminate running dispute workflows (optionally purge them), reseed the bank DB, toggles off."""
     o = client()
+    terminated = 0
     for wf_type in ("dispute_intake", "dispute_case"):
         for w in executions(o, wf_type, "RUNNING"):
             try:
                 o.terminate_workflow(w["workflowId"], "demo reset")
+                terminated += 1
                 print(f"terminated {wf_type} {w['workflowId']}")
             except OrkesError as e:
                 print(f"could not terminate {w['workflowId']}: {e}")
-    if args.purge:
+    if purge:
         for wf_type in ("dispute_intake", "dispute_case"):
             for w in executions(o, wf_type):
                 try:
@@ -50,7 +50,16 @@ def main() -> None:
         print("purged dispute executions")
     seed()
     set_setting("network_outage", "off")
+    set_setting("outage_scope", "all")
     set_setting("worker_bug", "off")
+    return terminated
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--purge", action="store_true", help="remove dispute executions from Orkes")
+    args = ap.parse_args()
+    reset(purge=args.purge)
     print("Demo reset.")
 
 

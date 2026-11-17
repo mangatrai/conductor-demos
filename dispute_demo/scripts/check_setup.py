@@ -34,12 +34,23 @@ def main() -> None:
         o.call("GET", "/metadata/taskdefs", params={"access": "READ"})
     except OrkesError as e:
         fail(f"Orkes rejected the request ({e}).\n"
-             f"    Check the key id/secret, and that the application has the Worker and Metadata API roles.")
+             f"    Check the key id/secret, and that the application has the Worker, Metadata API and\n"
+             f"    Business Rule Manager roles.")
     except Exception as e:  # network, DNS, TLS
         fail(f"Cannot reach {url}: {e}")
     print(f"  ✓ Connected to Orkes {version} at {url}")
-    rules = os.environ.get("DISPUTE_RULES_URL", "").strip()
-    print(f"  ✓ Triage rules: {'BUSINESS_RULE from ' + rules if rules else 'INLINE fallback (DISPUTE_RULES_URL not set)'}")
+    major_minor = tuple(int(x) for x in version.split(".")[:2] if x.isdigit())
+    if major_minor < (5, 6):
+        fail(f"Orkes {version} is too old: triage uses a decision rule saved in Orkes (needs 5.6 or later).")
+    try:  # 404 = rule not created yet (fine, register.py creates it); 403 = the key can't manage decision rules
+        o.call("GET", "/business-rules/dispute_triage_rules")
+    except OrkesError as e:
+        if e.status == 403:
+            fail("The access key can't manage decision rules (403 on /api/business-rules).\n"
+                 "    In Orkes: Access Control > Applications > your app > add the 'Business Rule Manager' role.")
+        if e.status != 404:
+            raise
+    print("  ✓ Decision rules: the key can create and update them")
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ MERCHANTS = [
     ("M-STREAM", "StreamMax", "4899", "Cable & streaming services", "DIGITAL", "Online", "auto_accept", None),
     ("M-TUNE", "TuneWave Music", "5815", "Digital media", "DIGITAL", "Online", "auto_accept", None),
     ("M-CLOUD", "CloudVault Storage", "5817", "Digital software", "DIGITAL", "Online", "auto_accept", None),
-    ("M-VOLT", "VoltCity Electronics", "5732", "Electronics stores", "ELECTRONICS", "Austin, TX", "flaky_contest",
+    ("M-VOLT", "VoltCity Electronics", "5732", "Electronics stores", "ELECTRONICS", "Austin, TX", "contest",
      "Carrier scan shows package delivered to front door; tracking 1Z84A0..."),
     ("M-GADGET", "GadgetHub Online", "5964", "Catalog merchant", "ELECTRONICS", "Online", "silent", None),
     ("M-FRESH", "FreshCart Grocery", "5411", "Grocery stores", "GROCERY", "Austin, TX", "auto_accept", None),
@@ -83,7 +83,7 @@ MONTHLY = {  # subscriptions billed monthly
 SCRIPTED = {
     "everyday": [
         ("M-STREAM", 15.99, 9, "StreamMax Premium monthly"),        # cancelled -> auto-approve
-        ("M-VOLT", 649.00, 19, "VoltCity 65in 4K TV"),               # not received -> review, flaky merchant
+        ("M-VOLT", 649.00, 19, "VoltCity 65in 4K TV"),               # not received -> review; the console's outage targets it
         ("M-ACE", 85.00, 12, "Ace Rapid Plumbing service call"),     # work not done -> labor category
         ("M-SALON", 64.00, 26, "Shear Elegance cut & color"),
         ("M-SKY", 389.40, 85, "SkyBridge AUS-SEA"),                  # outside the dispute window

@@ -1,4 +1,4 @@
-"""Start the whole demo: workers + web app (portal, analyst console, network simulator).
+"""Start the whole demo: workers + web app (the dispute console).
 
     python run.py [--port 8000]      (start.sh does setup first, then runs this)
 
@@ -34,9 +34,7 @@ def main() -> None:
         workers = subprocess.Popen([sys.executable, "-m", "workers.run_workers"], cwd=ROOT,
                                    start_new_session=True)
     try:
-        print(f"\n  Cardholder portal   http://localhost:{args.port}/\n"
-              f"  Analyst console     http://localhost:{args.port}/admin\n"
-              f"  Network simulator   http://localhost:{args.port}/merchant\n", flush=True)
+        print(f"\n  Dispute console   http://localhost:{args.port}/\n", flush=True)
         uvicorn.run("app.main:app", host="127.0.0.1", port=args.port, log_level="warning")
     finally:
         if workers and workers.poll() is None:

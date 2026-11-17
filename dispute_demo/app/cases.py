@@ -157,12 +157,12 @@ def live_state(workflow_id: str) -> dict:
             if st == "IN_PROGRESS":
                 out["infoRequest"] = {"question": i.get("question"), "taskRef": ref,
                                       "since": _iso(t.get("startTime"))}
-                ev(t, "Waiting for your answer", i.get("question", ""), kind="action", actor="cardholder",
+                ev(t, "Waiting for the cardholder's answer", i.get("question", ""), kind="action", actor="cardholder",
                    at=_iso(t.get("startTime")))
             elif st == "COMPLETED":
                 out["conversation"].append({"at": _iso(t.get("endTime")), "from": "cardholder",
                                             "text": o.get("answer")})
-                ev(t, "You answered", o.get("answer", ""), actor="cardholder")
+                ev(t, "Cardholder answered", o.get("answer", ""), actor="cardholder")
         elif base == "finalize_case" and st in FAILED:
             out["retriedSteps"] += 1
             ev(t, "Step failed: posting the final ledger entries", t.get("reasonForIncompletion") or "",
@@ -182,10 +182,65 @@ def live_state(workflow_id: str) -> dict:
                                  "reason": bad.get("reasonForIncompletion") or wf.get("reasonForIncompletion"),
                                  "at": _iso(bad.get("endTime"))}
     stage, label, waiting_on = _stage(wf, current, out)
+    out["steps"], out["analystRounds"] = _steps(tasks, out, stage)
     out.update(stage=stage, stageLabel=label, waitingOn=waiting_on, timeline=events,
                startTime=_iso(wf.get("startTime")), endTime=_iso(wf.get("endTime")),
                output=wf.get("output") or {})
     return out
+
+
+def _steps(tasks: list[dict], s: dict, stage: str) -> tuple[dict, int]:
+    """Six business steps for the console's progress chips: todo/active/done/warn/wait/error/skip."""
+    last: dict[str, dict] = {}
+    rounds = 0
+    for t in tasks:  # sorted by seq, so the latest iteration of a looped task wins
+        b = _base(t["referenceTaskName"])
+        last[b] = t
+        rounds += b == "analyst_review"
+    st = lambda b: (last.get(b) or {}).get("status")  # noqa: E731
+    live = ("SCHEDULED", "IN_PROGRESS")
+    denied = s.get("route") == "AUTO_DENY"
+    steps = {k: "todo" for k in ("rules", "credit", "chargeback", "merchant", "review", "resolve")}
+    steps["rules"] = "done" if st("triage_rules") == "COMPLETED" else "active"
+    if denied:
+        steps.update(credit="skip", chargeback="skip", merchant="skip", review="skip")
+    else:
+        if st("issue_provisional_credit") == "COMPLETED":
+            steps["credit"] = "done"
+        elif st("issue_provisional_credit") in live:
+            steps["credit"] = "active"
+        if s.get("chargebackRef"):
+            steps["chargeback"] = "done"
+        elif s.get("opsTask"):
+            steps["chargeback"] = "wait"
+        elif s.get("merchantDecision") == "NOT_FILED":
+            steps["chargeback"] = "skip"
+        elif s.get("chargebackFailures"):
+            steps["chargeback"] = "warn"
+        elif st("file_chargeback") in live:
+            steps["chargeback"] = "active"
+        md = s.get("merchantDecision")
+        if s.get("merchantWait"):
+            steps["merchant"] = "active"
+        elif md == "CONTEST":
+            steps["merchant"] = "warn"
+        elif md == "NOT_FILED":
+            steps["merchant"] = "skip"
+        elif md:
+            steps["merchant"] = "done"
+        if s.get("humanTask") or s.get("infoRequest"):
+            steps["review"] = "wait"
+        elif st("set_analyst_decision") == "COMPLETED":
+            steps["review"] = "done"
+        elif st("set_auto_decision") == "COMPLETED":
+            steps["review"] = "skip"
+    if st("finalize_case") == "COMPLETED":
+        steps["resolve"] = "done"
+    elif stage == "ERROR":
+        steps["resolve"] = "error"
+    elif st("finalize_case") in live or stage == "RESOLVING":
+        steps["resolve"] = "active"
+    return steps, rounds
 
 
 def _stage(wf: dict, current: dict | None, s: dict) -> tuple[str, str, str]:

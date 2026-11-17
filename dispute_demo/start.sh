@@ -48,7 +48,7 @@ step "Checking Orkes connection (.env at $REPO_DIR/.env)"
 "$PY" scripts/check_setup.py
 
 # 4. Task definitions, forms, workflows
-step "Registering task definitions, user forms and workflows in Orkes"
+step "Saving the triage decision rule and registering definitions, forms and workflows in Orkes"
 "$PY" scripts/register.py
 
 # 5. Fresh demo data
