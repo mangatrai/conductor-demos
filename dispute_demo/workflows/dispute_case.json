@@ -1,0 +1,267 @@
+{
+  "name": "dispute_case",
+  "description": "One disputed charge: open case, triage with business rules, provisional credit, chargeback, merchant response, analyst review if needed, resolve.",
+  "version": 1,
+  "schemaVersion": 2,
+  "ownerEmail": "dispute-demo@example.com",
+  "restartable": true,
+  "timeoutPolicy": "ALERT_ONLY",
+  "timeoutSeconds": 7776000,
+  "inputParameters": ["caseId", "disputeId", "cardholderId", "cardholderName", "txnId", "reasonCode", "reasonLabel", "cardholderNote", "merchantName", "amount"],
+  "tasks": [
+    {
+      "name": "open_case",
+      "taskReferenceName": "open_case",
+      "type": "SIMPLE",
+      "inputParameters": {
+        "caseId": "${workflow.input.caseId}",
+        "disputeId": "${workflow.input.disputeId}",
+        "cardholderId": "${workflow.input.cardholderId}",
+        "txnId": "${workflow.input.txnId}",
+        "reasonCode": "${workflow.input.reasonCode}",
+        "cardholderNote": "${workflow.input.cardholderNote}",
+        "workflowId": "${workflow.workflowId}"
+      }
+    },
+    {
+      "name": "enrich_case",
+      "taskReferenceName": "enrich_case",
+      "type": "SIMPLE",
+      "inputParameters": {
+        "caseId": "${workflow.input.caseId}",
+        "txnId": "${workflow.input.txnId}",
+        "cardholderId": "${workflow.input.cardholderId}",
+        "disputeId": "${workflow.input.disputeId}"
+      }
+    },
+    "__TRIAGE_TASK__",
+    {
+      "name": "route_case",
+      "taskReferenceName": "route_case",
+      "type": "SWITCH",
+      "evaluatorType": "value-param",
+      "expression": "route",
+      "inputParameters": {
+        "route": "${triage_rules.output.result.route}"
+      },
+      "decisionCases": {
+        "AUTO_DENY": [
+          {
+            "name": "set_rules_decision",
+            "taskReferenceName": "set_rules_decision",
+            "type": "SET_VARIABLE",
+            "inputParameters": {
+              "decision": "REJECT",
+              "approvedAmount": 0,
+              "decidedBy": "RULES",
+              "note": "${triage_rules.output.result.reason}"
+            }
+          }
+        ]
+      },
+      "defaultCase": [
+        {
+          "name": "issue_provisional_credit",
+          "taskReferenceName": "issue_provisional_credit",
+          "type": "SIMPLE",
+          "inputParameters": {
+            "caseId": "${workflow.input.caseId}",
+            "cardholderId": "${workflow.input.cardholderId}",
+            "txnId": "${workflow.input.txnId}",
+            "amount": "${enrich_case.output.amount}"
+          }
+        },
+        {
+          "name": "file_chargeback",
+          "taskReferenceName": "file_chargeback",
+          "type": "SIMPLE",
+          "inputParameters": {
+            "caseId": "${workflow.input.caseId}",
+            "merchantName": "${enrich_case.output.merchantName}",
+            "amount": "${enrich_case.output.amount}",
+            "reasonCode": "${workflow.input.reasonCode}",
+            "merchantProfile": "${enrich_case.output.merchantProfile}"
+          }
+        },
+        {
+          "name": "await_merchant_response",
+          "taskReferenceName": "await_merchant_response",
+          "type": "WAIT",
+          "description": "Merchant has until the deadline to accept or contest (demo: 3 minutes; production: 30 days). Completed early by the card network callback.",
+          "inputParameters": {
+            "duration": "3 minutes",
+            "caseId": "${workflow.input.caseId}",
+            "chargebackRef": "${file_chargeback.output.chargebackRef}"
+          }
+        },
+        {
+          "name": "merchant_outcome",
+          "taskReferenceName": "merchant_outcome",
+          "type": "INLINE",
+          "inputParameters": {
+            "evaluatorType": "graaljs",
+            "route": "${triage_rules.output.result.route}",
+            "merchant": "${await_merchant_response.output}",
+            "expression": "(function () { var m = $.merchant || {}; var d = m.decision ? String(m.decision).toUpperCase() : 'NO_RESPONSE'; var needs = ($.route == 'HUMAN_REVIEW' || d == 'CONTEST'); return { merchantDecision: d, merchantEvidence: m.evidence || '', needsReview: needs ? 'YES' : 'NO' }; })()"
+          }
+        },
+        {
+          "name": "needs_review",
+          "taskReferenceName": "needs_review",
+          "type": "SWITCH",
+          "evaluatorType": "value-param",
+          "expression": "needsReview",
+          "inputParameters": {
+            "needsReview": "${merchant_outcome.output.result.needsReview}"
+          },
+          "decisionCases": {
+            "YES": [
+              {
+                "name": "review_loop",
+                "taskReferenceName": "review_loop",
+                "type": "DO_WHILE",
+                "inputParameters": {},
+                "loopCondition": "if ($.analyst_review['decision'] == 'REQUEST_INFO') { true; } else { false; }",
+                "loopOver": [
+                  {
+                    "name": "analyst_review",
+                    "taskReferenceName": "analyst_review",
+                    "type": "HUMAN",
+                    "inputParameters": {
+                      "caseId": "${workflow.input.caseId}",
+                      "cardholderName": "${workflow.input.cardholderName}",
+                      "merchantName": "${enrich_case.output.merchantName}",
+                      "mccDescription": "${enrich_case.output.mccDescription}",
+                      "amount": "${enrich_case.output.amount}",
+                      "reasonLabel": "${workflow.input.reasonLabel}",
+                      "cardholderNote": "${workflow.input.cardholderNote}",
+                      "triageReason": "${triage_rules.output.result.reason}",
+                      "merchantDecision": "${merchant_outcome.output.result.merchantDecision}",
+                      "merchantEvidence": "${merchant_outcome.output.result.merchantEvidence}",
+                      "cardholderAnswer": "${await_cardholder_info.output.answer}",
+                      "__humanTaskDefinition": {
+                        "displayName": "Review ${workflow.input.caseId}: ${enrich_case.output.merchantName}",
+                        "userFormTemplate": { "name": "dispute_review_form", "version": 1 },
+                        "assignments": [
+                          { "assignee": { "user": "dispute-analysts", "userType": "EXTERNAL_GROUP" }, "slaMinutes": 240 },
+                          { "assignee": { "user": "dispute-supervisors", "userType": "EXTERNAL_GROUP" }, "slaMinutes": 0 }
+                        ],
+                        "assignmentCompletionStrategy": "LEAVE_OPEN"
+                      }
+                    }
+                  },
+                  {
+                    "name": "info_requested",
+                    "taskReferenceName": "info_requested",
+                    "type": "SWITCH",
+                    "evaluatorType": "value-param",
+                    "expression": "decision",
+                    "inputParameters": {
+                      "decision": "${analyst_review.output.decision}"
+                    },
+                    "decisionCases": {
+                      "REQUEST_INFO": [
+                        {
+                          "name": "notify_cardholder",
+                          "taskReferenceName": "notify_info_request",
+                          "type": "SIMPLE",
+                          "inputParameters": {
+                            "cardholderId": "${workflow.input.cardholderId}",
+                            "kind": "INFO_REQUEST",
+                            "disputeId": "${workflow.input.disputeId}",
+                            "caseId": "${workflow.input.caseId}",
+                            "data": { "question": "${analyst_review.output.question}" }
+                          }
+                        },
+                        {
+                          "name": "await_cardholder_info",
+                          "taskReferenceName": "await_cardholder_info",
+                          "type": "WAIT",
+                          "description": "Paused until the cardholder answers in the portal.",
+                          "inputParameters": {
+                            "caseId": "${workflow.input.caseId}",
+                            "question": "${analyst_review.output.question}"
+                          }
+                        }
+                      ]
+                    },
+                    "defaultCase": []
+                  }
+                ]
+              },
+              {
+                "name": "set_analyst_decision",
+                "taskReferenceName": "set_analyst_decision",
+                "type": "SET_VARIABLE",
+                "inputParameters": {
+                  "decision": "${analyst_review.output.decision}",
+                  "approvedAmount": "${analyst_review.output.approvedAmount}",
+                  "decidedBy": "ANALYST",
+                  "note": "${analyst_review.output.note}"
+                }
+              }
+            ]
+          },
+          "defaultCase": [
+            {
+              "name": "set_auto_decision",
+              "taskReferenceName": "set_auto_decision",
+              "type": "SET_VARIABLE",
+              "inputParameters": {
+                "decision": "APPROVE",
+                "approvedAmount": "${enrich_case.output.amount}",
+                "decidedBy": "RULES",
+                "note": "Auto-approved (merchant response: ${merchant_outcome.output.result.merchantDecision})"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "finalize_case",
+      "taskReferenceName": "finalize_case",
+      "type": "SIMPLE",
+      "inputParameters": {
+        "caseId": "${workflow.input.caseId}",
+        "cardholderId": "${workflow.input.cardholderId}",
+        "txnId": "${workflow.input.txnId}",
+        "amount": "${enrich_case.output.amount}",
+        "decision": "${workflow.variables.decision}",
+        "approvedAmount": "${workflow.variables.approvedAmount}",
+        "decidedBy": "${workflow.variables.decidedBy}",
+        "note": "${workflow.variables.note}",
+        "provisionalCredit": "${issue_provisional_credit.output.creditedAmount}"
+      }
+    },
+    {
+      "name": "notify_cardholder",
+      "taskReferenceName": "notify_case_resolved",
+      "type": "SIMPLE",
+      "inputParameters": {
+        "cardholderId": "${workflow.input.cardholderId}",
+        "kind": "CASE_RESOLVED",
+        "disputeId": "${workflow.input.disputeId}",
+        "caseId": "${workflow.input.caseId}",
+        "data": {
+          "merchantName": "${enrich_case.output.merchantName}",
+          "outcome": "${finalize_case.output.outcome}",
+          "note": "${workflow.variables.note}",
+          "decidedBy": "${workflow.variables.decidedBy}",
+          "decision": "${finalize_case.output.decision}"
+        }
+      }
+    }
+  ],
+  "outputParameters": {
+    "caseId": "${workflow.input.caseId}",
+    "merchantName": "${enrich_case.output.merchantName}",
+    "amount": "${enrich_case.output.amount}",
+    "route": "${triage_rules.output.result.route}",
+    "routeReason": "${triage_rules.output.result.reason}",
+    "merchantDecision": "${merchant_outcome.output.result.merchantDecision}",
+    "decision": "${finalize_case.output.decision}",
+    "approvedAmount": "${finalize_case.output.approvedAmount}",
+    "decidedBy": "${workflow.variables.decidedBy}"
+  }
+}

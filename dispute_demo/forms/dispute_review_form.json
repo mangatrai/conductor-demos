@@ -1,0 +1,83 @@
+{
+  "name": "dispute_review_form",
+  "version": 1,
+  "jsonSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "type": "object",
+    "properties": {
+      "caseId": { "type": "string", "title": "Case", "readOnly": true },
+      "cardholderName": { "type": "string", "title": "Cardholder", "readOnly": true },
+      "merchantName": { "type": "string", "title": "Merchant", "readOnly": true },
+      "mccDescription": { "type": "string", "title": "Merchant category", "readOnly": true },
+      "amount": { "type": "number", "title": "Disputed amount (USD)", "readOnly": true },
+      "reasonLabel": { "type": "string", "title": "Cardholder's reason", "readOnly": true },
+      "cardholderNote": { "type": "string", "title": "Cardholder's statement", "readOnly": true },
+      "triageReason": { "type": "string", "title": "Why this needs review", "readOnly": true },
+      "merchantDecision": { "type": "string", "title": "Merchant response", "readOnly": true },
+      "merchantEvidence": { "type": "string", "title": "Merchant evidence", "readOnly": true },
+      "cardholderAnswer": { "type": "string", "title": "Cardholder's latest answer", "readOnly": true },
+      "decision": {
+        "type": "string",
+        "title": "Decision",
+        "oneOf": [
+          { "const": "APPROVE", "title": "Approve in full" },
+          { "const": "PARTIAL", "title": "Partially approve" },
+          { "const": "REJECT", "title": "Reject" },
+          { "const": "REQUEST_INFO", "title": "Request more info from cardholder" }
+        ]
+      },
+      "approvedAmount": { "type": "number", "title": "Approved amount (USD)", "minimum": 0 },
+      "question": { "type": "string", "title": "Question for the cardholder" },
+      "note": { "type": "string", "title": "Analyst note (shared with cardholder)" }
+    },
+    "required": ["decision"]
+  },
+  "templateUI": {
+    "type": "VerticalLayout",
+    "elements": [
+      {
+        "type": "Group",
+        "label": "Case facts",
+        "elements": [
+          { "type": "HorizontalLayout", "elements": [
+            { "type": "Control", "scope": "#/properties/caseId" },
+            { "type": "Control", "scope": "#/properties/cardholderName" }
+          ]},
+          { "type": "HorizontalLayout", "elements": [
+            { "type": "Control", "scope": "#/properties/merchantName" },
+            { "type": "Control", "scope": "#/properties/mccDescription" },
+            { "type": "Control", "scope": "#/properties/amount" }
+          ]},
+          { "type": "Control", "scope": "#/properties/reasonLabel" },
+          { "type": "Control", "scope": "#/properties/cardholderNote", "options": { "multi": true } },
+          { "type": "Control", "scope": "#/properties/triageReason" }
+        ]
+      },
+      {
+        "type": "Group",
+        "label": "Evidence",
+        "elements": [
+          { "type": "Control", "scope": "#/properties/merchantDecision" },
+          { "type": "Control", "scope": "#/properties/merchantEvidence", "options": { "multi": true } },
+          { "type": "Control", "scope": "#/properties/cardholderAnswer", "options": { "multi": true } }
+        ]
+      },
+      {
+        "type": "Group",
+        "label": "Decision",
+        "elements": [
+          { "type": "Control", "scope": "#/properties/decision", "options": { "format": "radio" } },
+          {
+            "type": "Control", "scope": "#/properties/approvedAmount",
+            "rule": { "effect": "SHOW", "condition": { "scope": "#/properties/decision", "schema": { "const": "PARTIAL" } } }
+          },
+          {
+            "type": "Control", "scope": "#/properties/question", "options": { "multi": true },
+            "rule": { "effect": "SHOW", "condition": { "scope": "#/properties/decision", "schema": { "const": "REQUEST_INFO" } } }
+          },
+          { "type": "Control", "scope": "#/properties/note", "options": { "multi": true } }
+        ]
+      }
+    ]
+  }
+}

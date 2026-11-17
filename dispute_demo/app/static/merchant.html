@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" href="data:,">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Card Network Simulator</title>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <script src="/static/common.js"></script>
+  <style>[x-cloak]{display:none!important}</style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 antialiased" x-data="sim()">
+<header class="border-b border-zinc-800">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="h-7 w-7 rounded-md bg-amber-500 text-zinc-900 grid place-items-center text-sm font-bold">⇄</div>
+      <div class="font-semibold">Card network · merchant simulator</div>
+    </div>
+    <div class="text-xs text-zinc-400">Plays the merchant side of each chargeback</div>
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+  <section class="grid md:grid-cols-2 gap-4">
+    <div class="rounded-xl border p-5" :class="settings.networkOutage ? 'border-rose-500 bg-rose-950/40' : 'border-zinc-800 bg-zinc-900'">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="font-semibold">Network outage</div>
+          <div class="text-sm text-zinc-400">While on, every <code>file_chargeback</code> call fails with HTTP 503. Orkes retries with exponential backoff (2s → 64s, 6 retries).</div>
+        </div>
+        <button aria-label="Toggle network outage" @click="save({networkOutage: !settings.networkOutage})" class="relative h-7 w-12 rounded-full transition shrink-0 ml-4"
+                :class="settings.networkOutage ? 'bg-rose-500' : 'bg-zinc-700'">
+          <span class="absolute top-1 h-5 w-5 rounded-full bg-white transition-all" :class="settings.networkOutage ? 'left-6' : 'left-1'"></span>
+        </button>
+      </div>
+    </div>
+    <div class="rounded-xl border border-zinc-800 bg-zinc-900 p-5">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="font-semibold">Merchant auto-reply</div>
+          <div class="text-sm text-zinc-400">Merchants with an <i>auto_accept</i> or <i>contest</i> profile answer <span x-text="autoReplySeconds"></span>s after the chargeback. <i>silent</i> merchants let the deadline pass; <i>manual</i> waits for you.</div>
+        </div>
+        <button aria-label="Toggle merchant auto-reply" @click="save({merchantAutoReply: !settings.merchantAutoReply})" class="relative h-7 w-12 rounded-full transition shrink-0 ml-4"
+                :class="settings.merchantAutoReply ? 'bg-emerald-500' : 'bg-zinc-700'">
+          <span class="absolute top-1 h-5 w-5 rounded-full bg-white transition-all" :class="settings.merchantAutoReply ? 'left-6' : 'left-1'"></span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <section class="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden">
+    <div class="px-5 py-3 border-b border-zinc-800 text-sm text-zinc-400">Chargebacks in flight. Answering completes the case's Orkes <b>WAIT</b> task through the API.</div>
+    <div x-show="!cases.length" class="p-6 text-sm text-zinc-500">Nothing waiting on a merchant.</div>
+    <ul class="divide-y divide-zinc-800">
+      <template x-for="c in cases" :key="c.caseId">
+        <li class="px-5 py-4 flex flex-wrap items-center gap-4">
+          <div class="flex-1 min-w-[220px]">
+            <div class="font-medium"><span x-text="c.merchant"></span> <span class="text-zinc-400 font-normal" x-text="money(c.amount)"></span></div>
+            <div class="text-xs text-zinc-400"><span x-text="c.caseId"></span> · <span x-text="c.cardholder"></span> · <span x-text="c.reasonLabel"></span></div>
+            <div class="text-xs mt-1">
+              <span class="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300" x-text="'profile: ' + c.profile"></span>
+              <span x-show="c.chargebackRef" class="ml-1 text-zinc-500" x-text="c.chargebackRef"></span>
+            </div>
+          </div>
+          <template x-if="c.stage==='RETRYING'">
+            <div class="text-sm text-orange-400 max-w-sm">
+              <div class="font-medium" x-text="c.stageLabel"></div>
+              <div class="text-xs text-orange-300/80" x-text="c.lastError"></div>
+            </div>
+          </template>
+          <template x-if="c.wait">
+            <div class="flex items-center gap-3">
+              <div class="text-right">
+                <div class="text-sm tabular-nums" x-text="countdown(c.wait.deadline)"></div>
+                <div class="text-xs text-zinc-500" x-text="'filed ' + timeAgo(c.wait.since)"></div>
+              </div>
+              <input x-model="evidence[c.caseId]" :placeholder="c.evidence || 'Evidence if contesting'" class="hidden lg:block w-64 bg-zinc-800 border border-zinc-700 rounded-md px-2 py-1.5 text-xs">
+              <button @click="respond(c, 'ACCEPT')" class="px-3 py-1.5 text-sm rounded-md bg-emerald-600 hover:bg-emerald-500">Accept</button>
+              <button @click="respond(c, 'CONTEST')" class="px-3 py-1.5 text-sm rounded-md bg-orange-600 hover:bg-orange-500">Contest</button>
+            </div>
+          </template>
+          <a :href="c.orkesUrl" target="_blank" class="text-xs text-zinc-500 underline">Orkes ↗</a>
+        </li>
+      </template>
+    </ul>
+  </section>
+</main>
+
+<div x-show="toast" x-cloak x-transition class="fixed bottom-4 right-4 bg-white text-zinc-900 text-sm rounded-lg px-4 py-3 shadow-lg" x-text="toast"></div>
+
+<script>
+function sim() {
+  return {
+    cases: [], settings: {}, autoReplySeconds: 20, evidence: {}, toast: "", tick: 0,
+    async init() { await this.refresh(); setInterval(() => this.refresh(), 2000); },
+    async refresh() {
+      const r = await api("/api/merchant/cases");
+      this.cases = r.cases; this.settings = r.settings; this.autoReplySeconds = r.autoReplySeconds;
+    },
+    async save(patch) { this.settings = await api("/api/settings", { method: "POST", body: patch }); },
+    async respond(c, decision) {
+      try {
+        await api(`/api/merchant/cases/${c.caseId}/respond`, { method: "POST", body: { decision, evidence: this.evidence[c.caseId] || "" } });
+        this.toast = `${c.merchant}: ${decision.toLowerCase()}ed ${c.caseId}`; setTimeout(() => this.toast = "", 3000);
+        this.refresh();
+      } catch (e) { this.toast = e.message; setTimeout(() => this.toast = "", 3000); }
+    },
+  };
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+outsideWindow,amount,category,priorDisputes90d,route,reason
+true,Any,Any,Any,AUTO_DENY,Outside the 60-day dispute window
+Any,>100,Any,Any,HUMAN_REVIEW,Amount over $100
+Any,Any,"inList({""CONTRACTOR"",""HOME_SERVICES"",""PERSONAL_SERVICES"",""PROFESSIONAL_SERVICES"",""REPAIR""})",Any,HUMAN_REVIEW,Human-labor service category
+Any,Any,Any,>3,HUMAN_REVIEW,Repeat disputer (more than 3 disputes in 90 days)
+Any,Any,Any,Any,AUTO_APPROVE,Low-risk dispute

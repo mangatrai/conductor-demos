@@ -1,0 +1,107 @@
+{
+  "name": "dispute_intake",
+  "description": "One cardholder dispute (one call). Splits into one dispute_case per charge; closes after the last case finishes.",
+  "version": 1,
+  "schemaVersion": 2,
+  "ownerEmail": "dispute-demo@example.com",
+  "restartable": true,
+  "timeoutPolicy": "ALERT_ONLY",
+  "timeoutSeconds": 7776000,
+  "inputParameters": ["disputeId", "cardholderId", "items", "channel"],
+  "tasks": [
+    {
+      "name": "validate_cardholder",
+      "taskReferenceName": "validate_cardholder",
+      "type": "SIMPLE",
+      "inputParameters": { "cardholderId": "${workflow.input.cardholderId}" }
+    },
+    {
+      "name": "card_status",
+      "taskReferenceName": "card_status",
+      "type": "SWITCH",
+      "evaluatorType": "value-param",
+      "expression": "status",
+      "inputParameters": { "status": "${validate_cardholder.output.status}" },
+      "decisionCases": {
+        "ACTIVE": []
+      },
+      "defaultCase": [
+        {
+          "name": "reject_inactive_card",
+          "taskReferenceName": "reject_inactive_card",
+          "type": "TERMINATE",
+          "inputParameters": {
+            "terminationStatus": "TERMINATED",
+            "terminationReason": "Card is not active: ${validate_cardholder.output.status}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "prepare_cases",
+      "taskReferenceName": "prepare_cases",
+      "type": "SIMPLE",
+      "inputParameters": {
+        "disputeId": "${workflow.input.disputeId}",
+        "cardholderId": "${workflow.input.cardholderId}",
+        "items": "${workflow.input.items}"
+      }
+    },
+    {
+      "name": "notify_cardholder",
+      "taskReferenceName": "notify_received",
+      "type": "SIMPLE",
+      "inputParameters": {
+        "cardholderId": "${workflow.input.cardholderId}",
+        "kind": "RECEIVED",
+        "disputeId": "${workflow.input.disputeId}",
+        "data": {
+          "caseCount": "${prepare_cases.output.caseCount}",
+          "totalDisputed": "${prepare_cases.output.totalDisputed}"
+        }
+      }
+    },
+    {
+      "name": "case_per_charge",
+      "taskReferenceName": "case_per_charge",
+      "type": "FORK_JOIN_DYNAMIC",
+      "description": "Start one dispute_case sub-workflow per charge; each has its own lifecycle. Optional: a failed case does not cancel its siblings.",
+      "optional": true,
+      "inputParameters": {
+        "forkTaskWorkflow": "dispute_case",
+        "forkTaskWorkflowVersion": "1",
+        "forkTaskInputs": "${prepare_cases.output.cases}"
+      }
+    },
+    {
+      "name": "wait_for_all_cases",
+      "taskReferenceName": "wait_for_all_cases",
+      "type": "JOIN"
+    },
+    {
+      "name": "summarize_dispute",
+      "taskReferenceName": "summarize_dispute",
+      "type": "INLINE",
+      "inputParameters": {
+        "evaluatorType": "graaljs",
+        "results": "${wait_for_all_cases.output}",
+        "expression": "(function () { var r = $.results || {}; var cases = []; var td = 0, tc = 0; for (var k in r) { var o = r[k] || {}; if (!o.caseId) { continue; } cases.push({ caseId: o.caseId, merchantName: o.merchantName, amount: o.amount, decision: o.decision || 'ERROR', approvedAmount: o.approvedAmount || 0, decidedBy: o.decidedBy }); td += Number(o.amount || 0); tc += Number(o.approvedAmount || 0); } cases.sort(function (a, b) { return a.caseId < b.caseId ? -1 : 1; }); return { caseCount: cases.length, totalDisputed: Math.round(td * 100) / 100, totalCredited: Math.round(tc * 100) / 100, cases: cases }; })()"
+      }
+    },
+    {
+      "name": "notify_cardholder",
+      "taskReferenceName": "notify_summary",
+      "type": "SIMPLE",
+      "inputParameters": {
+        "cardholderId": "${workflow.input.cardholderId}",
+        "kind": "DISPUTE_SUMMARY",
+        "disputeId": "${workflow.input.disputeId}",
+        "data": "${summarize_dispute.output.result}"
+      }
+    }
+  ],
+  "outputParameters": {
+    "disputeId": "${workflow.input.disputeId}",
+    "summary": "${summarize_dispute.output.result}"
+  }
+}
