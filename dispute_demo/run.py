@@ -1,6 +1,6 @@
 """Start the whole demo: workers + web app (portal, analyst console, network simulator).
 
-    /Users/mrai/.uv/venvs/conductor/bin/python run.py [--port 8000]
+    python run.py [--port 8000]      (start.sh does setup first, then runs this)
 
 Workers run in their own process group so Ctrl+C stops every child process.
 """

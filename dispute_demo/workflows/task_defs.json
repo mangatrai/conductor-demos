@@ -2,59 +2,131 @@
   {
     "name": "validate_cardholder",
     "description": "Check the cardholder and card are active (card management system)",
-    "retryCount": 3, "retryLogic": "FIXED", "retryDelaySeconds": 2,
-    "timeoutSeconds": 120, "responseTimeoutSeconds": 30, "timeoutPolicy": "RETRY",
-    "inputKeys": ["cardholderId"], "outputKeys": ["status", "name", "email", "cardLast4"],
+    "retryCount": 3,
+    "retryLogic": "FIXED",
+    "retryDelaySeconds": 2,
+    "timeoutSeconds": 120,
+    "responseTimeoutSeconds": 30,
+    "timeoutPolicy": "RETRY",
+    "inputKeys": [
+      "cardholderId"
+    ],
+    "outputKeys": [
+      "status",
+      "name",
+      "email",
+      "cardLast4"
+    ],
     "ownerEmail": "dispute-demo@example.com"
   },
   {
     "name": "prepare_cases",
     "description": "Split one dispute into one case per disputed charge",
-    "retryCount": 3, "retryLogic": "FIXED", "retryDelaySeconds": 2,
-    "timeoutSeconds": 120, "responseTimeoutSeconds": 30, "timeoutPolicy": "RETRY",
-    "inputKeys": ["disputeId", "cardholderId", "items"], "outputKeys": ["cases", "caseCount", "totalDisputed"],
+    "retryCount": 3,
+    "retryLogic": "FIXED",
+    "retryDelaySeconds": 2,
+    "timeoutSeconds": 120,
+    "responseTimeoutSeconds": 30,
+    "timeoutPolicy": "RETRY",
+    "inputKeys": [
+      "disputeId",
+      "cardholderId",
+      "items"
+    ],
+    "outputKeys": [
+      "cases",
+      "caseCount",
+      "totalDisputed"
+    ],
+    "ownerEmail": "dispute-demo@example.com"
+  },
+  {
+    "name": "collect_case_results",
+    "description": "Check the case system for which cases of a dispute are closed and total the outcomes",
+    "retryCount": 3,
+    "retryLogic": "FIXED",
+    "retryDelaySeconds": 2,
+    "timeoutSeconds": 120,
+    "responseTimeoutSeconds": 30,
+    "timeoutPolicy": "RETRY",
+    "inputKeys": [
+      "disputeId",
+      "expectedCount"
+    ],
+    "outputKeys": [
+      "pending",
+      "openCases",
+      "caseCount",
+      "totalDisputed",
+      "totalCredited",
+      "cases"
+    ],
     "ownerEmail": "dispute-demo@example.com"
   },
   {
     "name": "open_case",
     "description": "Create the case record with its Reg Z resolution deadline (case management system)",
-    "retryCount": 3, "retryLogic": "FIXED", "retryDelaySeconds": 2,
-    "timeoutSeconds": 120, "responseTimeoutSeconds": 30, "timeoutPolicy": "RETRY",
+    "retryCount": 3,
+    "retryLogic": "FIXED",
+    "retryDelaySeconds": 2,
+    "timeoutSeconds": 120,
+    "responseTimeoutSeconds": 30,
+    "timeoutPolicy": "RETRY",
     "ownerEmail": "dispute-demo@example.com"
   },
   {
     "name": "enrich_case",
     "description": "Merchant, MCC category, dispute window and cardholder dispute history",
-    "retryCount": 3, "retryLogic": "FIXED", "retryDelaySeconds": 2,
-    "timeoutSeconds": 120, "responseTimeoutSeconds": 30, "timeoutPolicy": "RETRY",
+    "retryCount": 3,
+    "retryLogic": "FIXED",
+    "retryDelaySeconds": 2,
+    "timeoutSeconds": 120,
+    "responseTimeoutSeconds": 30,
+    "timeoutPolicy": "RETRY",
     "ownerEmail": "dispute-demo@example.com"
   },
   {
     "name": "issue_provisional_credit",
     "description": "Post a provisional credit to the cardholder's account (core ledger)",
-    "retryCount": 3, "retryLogic": "FIXED", "retryDelaySeconds": 2,
-    "timeoutSeconds": 120, "responseTimeoutSeconds": 30, "timeoutPolicy": "RETRY",
+    "retryCount": 3,
+    "retryLogic": "FIXED",
+    "retryDelaySeconds": 2,
+    "timeoutSeconds": 120,
+    "responseTimeoutSeconds": 30,
+    "timeoutPolicy": "RETRY",
     "ownerEmail": "dispute-demo@example.com"
   },
   {
     "name": "file_chargeback",
     "description": "File the chargeback with the card network. The network can be unavailable, so retry with exponential backoff (2s, 4s, 8s, 16s, 32s, 64s).",
-    "retryCount": 6, "retryLogic": "EXPONENTIAL_BACKOFF", "retryDelaySeconds": 2,
-    "timeoutSeconds": 300, "responseTimeoutSeconds": 60, "timeoutPolicy": "RETRY",
+    "retryCount": 6,
+    "retryLogic": "EXPONENTIAL_BACKOFF",
+    "retryDelaySeconds": 2,
+    "timeoutSeconds": 300,
+    "responseTimeoutSeconds": 60,
+    "timeoutPolicy": "RETRY",
     "ownerEmail": "dispute-demo@example.com"
   },
   {
     "name": "finalize_case",
     "description": "Make the credit permanent, partially reverse or fully reverse it; close the case",
-    "retryCount": 3, "retryLogic": "FIXED", "retryDelaySeconds": 2,
-    "timeoutSeconds": 120, "responseTimeoutSeconds": 30, "timeoutPolicy": "RETRY",
+    "retryCount": 3,
+    "retryLogic": "FIXED",
+    "retryDelaySeconds": 2,
+    "timeoutSeconds": 120,
+    "responseTimeoutSeconds": 30,
+    "timeoutPolicy": "RETRY",
     "ownerEmail": "dispute-demo@example.com"
   },
   {
     "name": "notify_cardholder",
     "description": "Send a letter to the cardholder (portal inbox; stands in for email/SMS/push)",
-    "retryCount": 3, "retryLogic": "FIXED", "retryDelaySeconds": 2,
-    "timeoutSeconds": 120, "responseTimeoutSeconds": 30, "timeoutPolicy": "RETRY",
+    "retryCount": 3,
+    "retryLogic": "FIXED",
+    "retryDelaySeconds": 2,
+    "timeoutSeconds": 120,
+    "responseTimeoutSeconds": 30,
+    "timeoutPolicy": "RETRY",
     "ownerEmail": "dispute-demo@example.com"
   }
 ]

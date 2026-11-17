@@ -21,7 +21,10 @@ ROUTE_LABEL = {"AUTO_APPROVE": "Auto-approve", "HUMAN_REVIEW": "Analyst review",
 DECISION_LABEL = {"APPROVE": "Approved", "PARTIAL": "Partially approved", "REJECT": "Declined",
                   "REQUEST_INFO": "More info requested"}
 MERCHANT_LABEL = {"ACCEPT": "Merchant accepted the chargeback", "CONTEST": "Merchant contested",
-                  "NO_RESPONSE": "Merchant did not respond by the deadline"}
+                  "NO_RESPONSE": "Merchant did not respond by the deadline",
+                  "NOT_FILED": "No chargeback filed (network down; bank absorbs)"}
+OPS_LABEL = {"RETRY": "Ops: retry filing now", "PROCEED_WITHOUT_CHARGEBACK": "Ops: proceed without a chargeback"}
+FAILED = ("FAILED", "FAILED_WITH_TERMINAL_ERROR", "TIMED_OUT")
 
 
 def get_workflow_cached(workflow_id: str) -> dict:
@@ -71,7 +74,7 @@ def live_state(workflow_id: str) -> dict:
         "chargebackRef": None, "chargebackFailures": 0, "lastError": None,
         "humanTask": None, "infoRequest": None, "merchantWait": None, "conversation": [],
         "provisionalCredit": None, "decision": None, "approvedAmount": None, "decidedBy": None,
-        "decisionNote": None,
+        "decisionNote": None, "opsTask": None, "failedTask": None, "retriedSteps": 0,
     }
     events: list[dict] = []
 
@@ -101,7 +104,7 @@ def live_state(workflow_id: str) -> dict:
             out["provisionalCredit"] = o.get("creditedAmount")
             ev(t, f"Provisional credit {money(o.get('creditedAmount'))}", "Posted to your account while we investigate")
         elif base == "file_chargeback":
-            if st == "FAILED":
+            if st in FAILED or st == "COMPLETED_WITH_ERRORS":
                 out["chargebackFailures"] += 1
                 out["lastError"] = t.get("reasonForIncompletion")
                 ev(t, f"Card network attempt {t.get('retryCount', 0) + 1} failed",
@@ -109,6 +112,18 @@ def live_state(workflow_id: str) -> dict:
             elif st == "COMPLETED":
                 out["chargebackRef"] = o.get("chargebackRef")
                 ev(t, "Chargeback sent to merchant", f"Ref {o.get('chargebackRef')} via {o.get('network')}")
+        elif base == "chargeback_exception":
+            waiting = st in ("IN_PROGRESS", "SCHEDULED")
+            ev(t, "Escalated to operations", "Card network still down after every automatic retry. "
+               "Case is parked (not failed) until ops acts.", kind="action" if waiting else "warn",
+               actor="operations", internal=True, at=_iso(t.get("startTime")))
+            if waiting:
+                out["opsTask"] = {"taskId": t["taskId"], "taskRef": ref, "since": _iso(t.get("startTime")),
+                                  "iteration": t.get("iteration", 1),
+                                  "input": {k: v for k, v in i.items() if not k.startswith("__")}}
+            elif st == "COMPLETED":
+                ev(t, OPS_LABEL.get(o.get("decision"), o.get("decision")), o.get("note") or "",
+                   actor="operations", internal=True)
         elif base == "await_merchant_response":
             if st == "IN_PROGRESS":
                 deadline = (t.get("startTime") or 0) + int(t.get("callbackAfterSeconds") or 0) * 1000
@@ -148,6 +163,10 @@ def live_state(workflow_id: str) -> dict:
                 out["conversation"].append({"at": _iso(t.get("endTime")), "from": "cardholder",
                                             "text": o.get("answer")})
                 ev(t, "You answered", o.get("answer", ""), actor="cardholder")
+        elif base == "finalize_case" and st in FAILED:
+            out["retriedSteps"] += 1
+            ev(t, "Step failed: posting the final ledger entries", t.get("reasonForIncompletion") or "",
+               kind="error", internal=True)
         elif base == "finalize_case" and st == "COMPLETED":
             out.update(decision=o.get("decision"), approvedAmount=o.get("approvedAmount"))
             ev(t, "Case resolved", o.get("outcome", ""), kind="final")
@@ -155,6 +174,13 @@ def live_state(workflow_id: str) -> dict:
             out["decidedBy"] = i.get("decidedBy")
             out["decisionNote"] = i.get("note")
 
+    if wf["status"] in ("FAILED", "TIMED_OUT"):
+        bad = next((t for t in reversed(tasks) if t["status"] in FAILED
+                    and t["taskType"] not in ("DO_WHILE", "SUB_WORKFLOW")), None)
+        if bad:
+            out["failedTask"] = {"ref": bad["referenceTaskName"], "name": bad.get("taskDefName"),
+                                 "reason": bad.get("reasonForIncompletion") or wf.get("reasonForIncompletion"),
+                                 "at": _iso(bad.get("endTime"))}
     stage, label, waiting_on = _stage(wf, current, out)
     out.update(stage=stage, stageLabel=label, waitingOn=waiting_on, timeline=events,
                startTime=_iso(wf.get("startTime")), endTime=_iso(wf.get("endTime")),
@@ -167,7 +193,8 @@ def _stage(wf: dict, current: dict | None, s: dict) -> tuple[str, str, str]:
     if status == "COMPLETED":
         return "RESOLVED", DECISION_LABEL.get(s.get("decision"), "Resolved"), ""
     if status in ("FAILED", "TIMED_OUT"):
-        return "ERROR", "Needs attention", "operations"
+        step = (s.get("failedTask") or {}).get("name") or "a step"
+        return "ERROR", f"Failed at {step}", "operations"
     if status == "TERMINATED":
         return "CANCELLED", "Cancelled", ""
     if status == "PAUSED":
@@ -175,6 +202,8 @@ def _stage(wf: dict, current: dict | None, s: dict) -> tuple[str, str, str]:
     base = _base(current["referenceTaskName"]) if current else ""
     if base == "file_chargeback" and s["chargebackFailures"]:
         return "RETRYING", f"Card network retrying ({s['chargebackFailures']} failed)", "system"
+    if base == "chargeback_exception":
+        return "OPS_EXCEPTION", "Ops: chargeback not filed", "operations"
     if base == "await_merchant_response":
         return "AWAITING_MERCHANT", "Awaiting merchant", "merchant"
     if base == "analyst_review":

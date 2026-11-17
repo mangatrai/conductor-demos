@@ -1,0 +1,57 @@
+{
+  "name": "chargeback_exception_form",
+  "version": 1,
+  "jsonSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "type": "object",
+    "properties": {
+      "caseId": { "type": "string", "title": "Case", "readOnly": true },
+      "cardholderName": { "type": "string", "title": "Cardholder", "readOnly": true },
+      "merchantName": { "type": "string", "title": "Merchant", "readOnly": true },
+      "amount": { "type": "number", "title": "Disputed amount (USD)", "readOnly": true },
+      "lastError": { "type": "string", "title": "Last card network error", "readOnly": true },
+      "attempts": { "type": "number", "title": "Automatic retries used", "readOnly": true },
+      "decision": {
+        "type": "string",
+        "title": "Action",
+        "oneOf": [
+          { "const": "RETRY", "title": "Retry filing now (network is back)" },
+          { "const": "PROCEED_WITHOUT_CHARGEBACK", "title": "Proceed without a chargeback (bank absorbs)" }
+        ]
+      },
+      "note": { "type": "string", "title": "Ops note (internal)" }
+    },
+    "required": ["decision"]
+  },
+  "templateUI": {
+    "type": "VerticalLayout",
+    "elements": [
+      {
+        "type": "Group",
+        "label": "Chargeback could not be filed",
+        "elements": [
+          { "type": "HorizontalLayout", "elements": [
+            { "type": "Control", "scope": "#/properties/caseId" },
+            { "type": "Control", "scope": "#/properties/cardholderName" }
+          ]},
+          { "type": "HorizontalLayout", "elements": [
+            { "type": "Control", "scope": "#/properties/merchantName" },
+            { "type": "Control", "scope": "#/properties/amount" }
+          ]},
+          { "type": "HorizontalLayout", "elements": [
+            { "type": "Control", "scope": "#/properties/lastError" },
+            { "type": "Control", "scope": "#/properties/attempts" }
+          ]}
+        ]
+      },
+      {
+        "type": "Group",
+        "label": "Ops action",
+        "elements": [
+          { "type": "Control", "scope": "#/properties/decision" },
+          { "type": "Control", "scope": "#/properties/note", "options": { "multi": true } }
+        ]
+      }
+    ]
+  }
+}

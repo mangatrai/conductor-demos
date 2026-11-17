@@ -1,13 +1,24 @@
 {
   "name": "dispute_case",
-  "description": "One disputed charge: open case, triage with business rules, provisional credit, chargeback, merchant response, analyst review if needed, resolve.",
+  "description": "One disputed charge: open case, triage with business rules, provisional credit, chargeback (retries, then ops exception queue), merchant response, analyst review if needed, resolve.",
   "version": 1,
   "schemaVersion": 2,
   "ownerEmail": "dispute-demo@example.com",
   "restartable": true,
   "timeoutPolicy": "ALERT_ONLY",
   "timeoutSeconds": 7776000,
-  "inputParameters": ["caseId", "disputeId", "cardholderId", "cardholderName", "txnId", "reasonCode", "reasonLabel", "cardholderNote", "merchantName", "amount"],
+  "inputParameters": [
+    "caseId",
+    "disputeId",
+    "cardholderId",
+    "cardholderName",
+    "txnId",
+    "reasonCode",
+    "reasonLabel",
+    "cardholderNote",
+    "merchantName",
+    "amount"
+  ],
   "tasks": [
     {
       "name": "open_case",
@@ -72,27 +83,107 @@
           }
         },
         {
-          "name": "file_chargeback",
-          "taskReferenceName": "file_chargeback",
-          "type": "SIMPLE",
-          "inputParameters": {
-            "caseId": "${workflow.input.caseId}",
-            "merchantName": "${enrich_case.output.merchantName}",
-            "amount": "${enrich_case.output.amount}",
-            "reasonCode": "${workflow.input.reasonCode}",
-            "merchantProfile": "${enrich_case.output.merchantProfile}"
-          }
+          "name": "chargeback_loop",
+          "taskReferenceName": "chargeback_loop",
+          "type": "DO_WHILE",
+          "description": "File the chargeback; if every automatic retry fails, ops decides: retry now (loop again) or proceed without a chargeback.",
+          "inputParameters": {},
+          "loopCondition": "if ($.file_chargeback['chargebackRef'] == null && $.chargeback_exception['decision'] == 'RETRY') { true; } else { false; }",
+          "loopOver": [
+            {
+              "name": "file_chargeback",
+              "taskReferenceName": "file_chargeback",
+              "type": "SIMPLE",
+              "inputParameters": {
+                "caseId": "${workflow.input.caseId}",
+                "merchantName": "${enrich_case.output.merchantName}",
+                "amount": "${enrich_case.output.amount}",
+                "reasonCode": "${workflow.input.reasonCode}",
+                "merchantProfile": "${enrich_case.output.merchantProfile}"
+              },
+              "optional": true,
+              "description": "Card network call. Automatic retries with exponential backoff; optional so that if the network is still down after the last retry the case is escalated to ops instead of failing."
+            },
+            {
+              "name": "chargeback_filed",
+              "taskReferenceName": "chargeback_filed",
+              "type": "SWITCH",
+              "evaluatorType": "graaljs",
+              "expression": "$.chargebackRef ? 'FILED' : 'NOT_FILED'",
+              "inputParameters": {
+                "chargebackRef": "${file_chargeback.output.chargebackRef}"
+              },
+              "decisionCases": {
+                "NOT_FILED": [
+                  {
+                    "name": "chargeback_exception",
+                    "taskReferenceName": "chargeback_exception",
+                    "type": "HUMAN",
+                    "description": "Ops exception queue: the card network stayed down through every automatic retry. The case waits here (hours or days if needed) instead of failing.",
+                    "inputParameters": {
+                      "caseId": "${workflow.input.caseId}",
+                      "cardholderName": "${workflow.input.cardholderName}",
+                      "merchantName": "${enrich_case.output.merchantName}",
+                      "amount": "${enrich_case.output.amount}",
+                      "lastError": "${file_chargeback.reasonForIncompletion}",
+                      "attempts": "${file_chargeback.retryCount}",
+                      "__humanTaskDefinition": {
+                        "displayName": "Chargeback not filed: ${workflow.input.caseId} ${enrich_case.output.merchantName}",
+                        "userFormTemplate": {
+                          "name": "chargeback_exception_form",
+                          "version": 1
+                        },
+                        "assignments": [
+                          {
+                            "assignee": {
+                              "user": "dispute-ops",
+                              "userType": "EXTERNAL_GROUP"
+                            },
+                            "slaMinutes": 30
+                          },
+                          {
+                            "assignee": {
+                              "user": "dispute-ops-leads",
+                              "userType": "EXTERNAL_GROUP"
+                            },
+                            "slaMinutes": 0
+                          }
+                        ],
+                        "assignmentCompletionStrategy": "LEAVE_OPEN"
+                      }
+                    }
+                  }
+                ]
+              },
+              "defaultCase": []
+            }
+          ]
         },
         {
-          "name": "await_merchant_response",
-          "taskReferenceName": "await_merchant_response",
-          "type": "WAIT",
-          "description": "Merchant has until the deadline to accept or contest (demo: 3 minutes; production: 30 days). Completed early by the card network callback.",
+          "name": "chargeback_result",
+          "taskReferenceName": "chargeback_result",
+          "type": "SWITCH",
+          "evaluatorType": "graaljs",
+          "expression": "$.chargebackRef ? 'FILED' : 'NOT_FILED'",
           "inputParameters": {
-            "duration": "3 minutes",
-            "caseId": "${workflow.input.caseId}",
             "chargebackRef": "${file_chargeback.output.chargebackRef}"
-          }
+          },
+          "decisionCases": {
+            "FILED": [
+              {
+                "name": "await_merchant_response",
+                "taskReferenceName": "await_merchant_response",
+                "type": "WAIT",
+                "description": "Merchant has until the deadline to accept or contest (demo: 3 minutes; production: 30 days). Completed early by the card network callback.",
+                "inputParameters": {
+                  "duration": "3 minutes",
+                  "caseId": "${workflow.input.caseId}",
+                  "chargebackRef": "${file_chargeback.output.chargebackRef}"
+                }
+              }
+            ]
+          },
+          "defaultCase": []
         },
         {
           "name": "merchant_outcome",
@@ -102,7 +193,8 @@
             "evaluatorType": "graaljs",
             "route": "${triage_rules.output.result.route}",
             "merchant": "${await_merchant_response.output}",
-            "expression": "(function () { var m = $.merchant || {}; var d = m.decision ? String(m.decision).toUpperCase() : 'NO_RESPONSE'; var needs = ($.route == 'HUMAN_REVIEW' || d == 'CONTEST'); return { merchantDecision: d, merchantEvidence: m.evidence || '', needsReview: needs ? 'YES' : 'NO' }; })()"
+            "expression": "(function () { var m = $.merchant || {}; var d; if (!$.chargebackRef) { d = 'NOT_FILED'; } else { d = m.decision ? String(m.decision).toUpperCase() : 'NO_RESPONSE'; } var needs = ($.route == 'HUMAN_REVIEW' || d == 'CONTEST'); return { merchantDecision: d, merchantEvidence: m.evidence || '', needsReview: needs ? 'YES' : 'NO' }; })()",
+            "chargebackRef": "${file_chargeback.output.chargebackRef}"
           }
         },
         {
@@ -141,10 +233,25 @@
                       "cardholderAnswer": "${await_cardholder_info.output.answer}",
                       "__humanTaskDefinition": {
                         "displayName": "Review ${workflow.input.caseId}: ${enrich_case.output.merchantName}",
-                        "userFormTemplate": { "name": "dispute_review_form", "version": 1 },
+                        "userFormTemplate": {
+                          "name": "dispute_review_form",
+                          "version": 1
+                        },
                         "assignments": [
-                          { "assignee": { "user": "dispute-analysts", "userType": "EXTERNAL_GROUP" }, "slaMinutes": 240 },
-                          { "assignee": { "user": "dispute-supervisors", "userType": "EXTERNAL_GROUP" }, "slaMinutes": 0 }
+                          {
+                            "assignee": {
+                              "user": "dispute-analysts",
+                              "userType": "EXTERNAL_GROUP"
+                            },
+                            "slaMinutes": 240
+                          },
+                          {
+                            "assignee": {
+                              "user": "dispute-supervisors",
+                              "userType": "EXTERNAL_GROUP"
+                            },
+                            "slaMinutes": 0
+                          }
                         ],
                         "assignmentCompletionStrategy": "LEAVE_OPEN"
                       }
@@ -170,7 +277,9 @@
                             "kind": "INFO_REQUEST",
                             "disputeId": "${workflow.input.disputeId}",
                             "caseId": "${workflow.input.caseId}",
-                            "data": { "question": "${analyst_review.output.question}" }
+                            "data": {
+                              "question": "${analyst_review.output.question}"
+                            }
                           }
                         },
                         {

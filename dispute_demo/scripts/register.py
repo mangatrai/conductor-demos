@@ -78,8 +78,10 @@ def main() -> None:
         o.update_task_defs(task_defs)
         print(f"Updated {len(task_defs)} task definitions")
 
-    o.save_user_form(load("forms/dispute_review_form.json"))
-    print("Saved user form dispute_review_form v1")
+    for form_file in sorted((ROOT / "forms").glob("*.json")):
+        form = json.loads(form_file.read_text())
+        o.save_user_form(form)
+        print(f"Saved user form {form['name']} v{form['version']}")
 
     case_wf = load("workflows/dispute_case.json")
     triage = triage_task()

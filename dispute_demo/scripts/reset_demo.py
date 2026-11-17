@@ -50,6 +50,7 @@ def main() -> None:
         print("purged dispute executions")
     seed()
     set_setting("network_outage", "off")
+    set_setting("worker_bug", "off")
     print("Demo reset.")
 
 

@@ -8,13 +8,14 @@ standalone with its own README, workflow definitions, workers and scripts.
 | [`dispute_demo/`](dispute_demo/) | Credit card dispute workflow: one dispute fans out to one case per charge (FORK_JOIN_DYNAMIC), the parent closes last. BUSINESS_RULE triage, retries, WAIT for the merchant, HUMAN analyst review with a request-info loop. FastAPI cardholder portal, analyst console and card-network simulator. |
 | [`labs/`](labs/) | Small single-file worker experiments. |
 
-## Setup shared by all demos
+## Quick start
 
-- Python 3.13 venv with `conductor-python` (see [`AGENTS.md`](AGENTS.md)); extra packages per demo in its `requirements.txt`.
-- A local, git-ignored `.env` at this root:
+```bash
+git clone https://github.com/mangatrai/conductor-demos.git
+cd conductor-demos
+cp .env.example .env      # fill in your Orkes cluster URL and application access key
+./dispute_demo/start.sh   # each demo has its own start script and README
+```
 
-```
-CONDUCTOR_SERVER_URL=https://<your-cluster>/api
-CONDUCTOR_AUTH_KEY=...
-CONDUCTOR_AUTH_SECRET=...
-```
+All demos share one `.env` at the repository root (git-ignored) and, by default, one Python virtualenv at `.venv`.
+See each demo's README for prerequisites and a step-by-step walkthrough.

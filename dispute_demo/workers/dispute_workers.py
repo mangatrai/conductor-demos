@@ -69,6 +69,30 @@ def prepare_cases(disputeId: str, cardholderId: str, items: object) -> dict:
     return {"cases": cases, "caseCount": len(cases), "totalDisputed": total}
 
 
+@worker_task(task_definition_name="collect_case_results")
+def collect_case_results(disputeId: str, expectedCount: object = 0) -> dict:
+    """Ask the case system which cases of this dispute are closed. The parent keeps waiting while any is open."""
+    expected = int(expectedCount or 0)
+    with connect() as c:
+        rows_ = db.rows(c, """SELECT cs.id, cs.amount, cs.decision, cs.approved_amount, cs.decided_by, cs.closed_at,
+                                  m.name AS merchant_name
+                           FROM cases cs JOIN transactions t ON t.id = cs.txn_id JOIN merchants m ON m.id = t.merchant_id
+                           WHERE cs.dispute_id = ? ORDER BY cs.id""", disputeId)
+    closed = [r for r in rows_ if r["closed_at"]]
+    open_ids = [r["id"] for r in rows_ if not r["closed_at"]]
+    pending = max(len(open_ids), expected - len(closed))
+    cases = [{"caseId": r["id"], "merchantName": r["merchant_name"], "amount": r["amount"],
+              "decision": r["decision"] or "OPEN", "approvedAmount": r["approved_amount"] or 0,
+              "decidedBy": r["decided_by"]} for r in rows_]
+    if pending:
+        log(f"Dispute {disputeId}: {len(closed)}/{expected} cases closed; still waiting on {', '.join(open_ids) or pending}")
+    else:
+        log(f"Dispute {disputeId}: all {expected} cases closed")
+    return {"pending": pending, "openCases": open_ids, "caseCount": expected or len(rows_),
+            "totalDisputed": round(sum(r["amount"] for r in rows_), 2),
+            "totalCredited": round(sum(r["approved_amount"] or 0 for r in closed), 2), "cases": cases}
+
+
 # --------------------------------------------------------------------------- child
 @worker_task(task_definition_name="open_case")
 def open_case(caseId: str, disputeId: str, cardholderId: str, txnId: str, reasonCode: str,
@@ -130,7 +154,7 @@ def file_chargeback(caseId: str, merchantName: str, amount: float, reasonCode: s
         c.execute("UPDATE cases SET chargeback_attempts=? WHERE id=?", (attempt, caseId))
     if db.get_setting("network_outage") == "on":
         log(f"Attempt {attempt}: card network returned HTTP 503 Service Unavailable")
-        raise RuntimeError("Card network unavailable (HTTP 503) - will retry with backoff")
+        raise RuntimeError("Card network unavailable (HTTP 503 Service Unavailable)")
     if merchantProfile.startswith("flaky") and attempt <= 2:
         log(f"Attempt {attempt}: {merchantName} acquirer timed out after 10s")
         raise RuntimeError(f"Timeout reaching acquirer for {merchantName} - will retry with backoff")
@@ -143,6 +167,11 @@ def file_chargeback(caseId: str, merchantName: str, amount: float, reasonCode: s
 def finalize_case(caseId: str, cardholderId: str, txnId: str, amount: float, decision: str,
                   approvedAmount: object = None, decidedBy: str = "", note: str = "",
                   provisionalCredit: object = None) -> dict:
+    if db.get_setting("worker_bug") == "on":
+        # Simulated deploy bug: deterministic, so retrying the task won't help. Fail hard (no retries),
+        # the case workflow FAILS, ops fixes it and uses Retry, which resumes right here.
+        log(f"Case {caseId}: ledger rejected the posting (schema mismatch after the 2.4.1 deploy)")
+        raise NonRetryableException("LedgerPostingError: ledger API v2 rejected the posting (simulated bug)")
     decision = (decision or "REJECT").upper()
     amount = float(amount)
     if decision == "APPROVE":

@@ -22,12 +22,12 @@
 </header>
 
 <main class="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-6">
-  <section class="grid md:grid-cols-2 gap-4">
+  <section class="grid md:grid-cols-3 gap-4">
     <div class="rounded-xl border p-5" :class="settings.networkOutage ? 'border-rose-500 bg-rose-950/40' : 'border-zinc-800 bg-zinc-900'">
       <div class="flex items-center justify-between">
         <div>
           <div class="font-semibold">Network outage</div>
-          <div class="text-sm text-zinc-400">While on, every <code>file_chargeback</code> call fails with HTTP 503. Orkes retries with exponential backoff (2s → 64s, 6 retries).</div>
+          <div class="text-sm text-zinc-400">While on, every <code>file_chargeback</code> call fails with HTTP 503. Orkes retries with exponential backoff (2s → 64s, 6 retries, ~2 min); after that the case goes to the ops exception queue.</div>
         </div>
         <button aria-label="Toggle network outage" @click="save({networkOutage: !settings.networkOutage})" class="relative h-7 w-12 rounded-full transition shrink-0 ml-4"
                 :class="settings.networkOutage ? 'bg-rose-500' : 'bg-zinc-700'">
@@ -47,6 +47,18 @@
         </button>
       </div>
     </div>
+    <div class="rounded-xl border p-5" :class="settings.workerBug ? 'border-rose-500 bg-rose-950/40' : 'border-zinc-800 bg-zinc-900'">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="font-semibold">Worker bug</div>
+          <div class="text-sm text-zinc-400">Simulates a bad deploy: <code>finalize_case</code> fails hard (non-retryable), so the case workflow <b>fails</b>. Turn off, then <b>Retry</b> it from the Ops exceptions tab.</div>
+        </div>
+        <button aria-label="Toggle worker bug" @click="save({workerBug: !settings.workerBug})" class="relative h-7 w-12 rounded-full transition shrink-0 ml-4"
+                :class="settings.workerBug ? 'bg-rose-500' : 'bg-zinc-700'">
+          <span class="absolute top-1 h-5 w-5 rounded-full bg-white transition-all" :class="settings.workerBug ? 'left-6' : 'left-1'"></span>
+        </button>
+      </div>
+    </div>
   </section>
 
   <section class="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden">
@@ -63,7 +75,7 @@
               <span x-show="c.chargebackRef" class="ml-1 text-zinc-500" x-text="c.chargebackRef"></span>
             </div>
           </div>
-          <template x-if="c.stage==='RETRYING'">
+          <template x-if="c.stage==='RETRYING' || c.stage==='OPS_EXCEPTION'">
             <div class="text-sm text-orange-400 max-w-sm">
               <div class="font-medium" x-text="c.stageLabel"></div>
               <div class="text-xs text-orange-300/80" x-text="c.lastError"></div>

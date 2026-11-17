@@ -5,6 +5,8 @@
 
 Flow: network outage on -> dispute 4 charges -> outage off (retries recover) -> merchant
 replies -> analyst requests info -> cardholder answers -> partial / approve -> parent closes.
+Then: outage outlasting all retries -> ops exception queue -> ops retry / proceed; and a worker
+bug that fails a case -> parent keeps waiting -> fix + Retry from the failed step.
 """
 
 import argparse
@@ -54,6 +56,80 @@ class Smoke:
                 r.raise_for_status()
             time.sleep(1.5)
         raise TimeoutError(f"{case_id} never reached {stages}; last {last}")
+
+
+def first_txn(s, ch, merchant):
+    txns = s.get(f"/api/cardholders/{ch}/transactions")["transactions"]
+    return next(t for t in txns if t["merchant_name"] == merchant and not t["outsideWindow"] and not t["caseId"])
+
+
+def submit(s, ch, txns):
+    d = s.post("/api/disputes", {"cardholderId": ch, "items": [
+        {"txnId": t["id"], "reasonCode": "CANCELLED", "note": "Cancelled, still billed"} for t in txns]})
+    did = d["disputeId"]
+    return did, [f"{did.replace('D-', 'DSP-')}-{i}" for i in range(1, len(txns) + 1)]
+
+
+def parent_status(s, ch, did):
+    return next(x for x in s.get(f"/api/cardholders/{ch}/disputes") if x["id"] == did)["workflowStatus"]
+
+
+def wait_parent(s, ch, did, timeout=60):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if parent_status(s, ch, did) == "COMPLETED":
+            return True
+        time.sleep(2)
+    return False
+
+
+def ops_exception_scenario(s):
+    ch = "CH-1003"
+    print("6. Outage outlasts every retry -> cases parked in ops queue (not failed) -> ops retry / proceed")
+    s.post("/api/settings", {"networkOutage": True, "merchantAutoReply": True})
+    tune, books = first_txn(s, ch, "TuneWave Music"), first_txn(s, ch, "PageTurner Books")
+    did, (tune_id, books_id) = submit(s, ch, [tune, books])
+    print(f"   dispute {did}; waiting ~2 min for 6 retries with backoff to run out")
+    t = s.wait_stage(tune_id, "OPS_EXCEPTION", timeout=240)
+    s.wait_stage(books_id, "OPS_EXCEPTION", timeout=60)
+    s.check(t["live"]["chargebackFailures"] == 7, f"All 7 chargeback attempts failed ({t['live']['chargebackFailures']})")
+    lastErr = (t["live"]["opsTask"] or {}).get("input", {}).get("lastError") or ""
+    s.check("503" in lastErr and "${" not in lastErr, f"Ops task shows the network error: {lastErr[:60]}")
+    s.check(parent_status(s, ch, did) == "RUNNING", "Parent dispute still open while cases wait for ops")
+    s.post("/api/settings", {"networkOutage": False})
+    s.post(f"/api/cases/{tune_id}/ops-action", {"decision": "RETRY", "note": "Network incident resolved"})
+    s.post(f"/api/cases/{books_id}/ops-action", {"decision": "PROCEED_WITHOUT_CHARGEBACK", "note": "Below write-off limit"})
+    t = s.wait_stage(tune_id, "RESOLVED", timeout=90)
+    b = s.wait_stage(books_id, "RESOLVED", timeout=60)
+    s.check(t["live"]["chargebackRef"] and t["live"]["merchantDecision"] == "ACCEPT" and t["live"]["decision"] == "APPROVE",
+            "Ops RETRY: chargeback filed on loop 2, merchant accepted, approved")
+    s.check(b["live"]["merchantDecision"] == "NOT_FILED" and b["live"]["decision"] == "APPROVE",
+            "Ops PROCEED: no chargeback, low-risk case approved (bank absorbs)")
+    s.check(wait_parent(s, ch, did), "Parent dispute COMPLETED after ops resolved both cases")
+
+
+def worker_bug_scenario(s):
+    ch = "CH-1002"
+    print("7. Worker bug -> case FAILS loudly -> parent keeps waiting -> fix -> Retry resumes at failed step")
+    s.post("/api/settings", {"workerBug": True, "networkOutage": False, "merchantAutoReply": True})
+    vault = first_txn(s, ch, "CloudVault Storage")
+    did, (case_id,) = submit(s, ch, [vault])
+    c = s.wait_stage(case_id, "ERROR", timeout=120)
+    s.check((c["live"]["failedTask"] or {}).get("name") == "finalize_case",
+            f"Case failed at finalize_case: {(c['live']['failedTask'] or {}).get('reason', '')[:60]}")
+    time.sleep(35)  # longer than the parent's 30 s recheck timer
+    s.check(parent_status(s, ch, did) == "RUNNING", "Parent still open 35 s after its only case failed")
+    s.post("/api/settings", {"workerBug": False})
+    s.post(f"/api/cases/{case_id}/retry", {})
+    c = s.wait_stage(case_id, "RESOLVED", timeout=60)
+    prov = [e for e in c["ledger"] if e["entry_type"] == "PROVISIONAL_CREDIT"]
+    s.check(c["live"]["decision"] == "APPROVE" and len(prov) == 1,
+            "Retry resumed at finalize_case: approved, provisional credit posted exactly once")
+    s.check(any(e["kind"] == "error" for e in c["live"]["timeline"]), "Timeline keeps the failed attempt")
+    s.check(wait_parent(s, ch, did, timeout=60), "Parent COMPLETED after the retried case closed")
+    msgs = [m for m in s.get(f"/api/cardholders/{ch}/messages") if m["dispute_id"] == did]
+    summary = next((m for m in msgs if m["kind"] == "DISPUTE_SUMMARY"), None)
+    s.check(summary is not None and f"${vault['amount']:,.2f} of" in summary["body"], "Summary letter counts the retried case")
 
 
 def main():
@@ -132,7 +208,10 @@ def main():
     expected = round(stream["amount"] + volt["amount"] + 40, 2)
     s.check(summary is not None and f"${expected:,.2f}" in summary["body"], f"Summary letter credits ${expected:,.2f}")
 
-    s.post("/api/settings", {"networkOutage": False, "merchantAutoReply": True})
+    ops_exception_scenario(s)
+    worker_bug_scenario(s)
+
+    s.post("/api/settings", {"networkOutage": False, "merchantAutoReply": True, "workerBug": False})
     print(f"\n{'ALL PASSED' if not s.failures else str(s.failures) + ' FAILURE(S)'}")
     sys.exit(1 if s.failures else 0)
 

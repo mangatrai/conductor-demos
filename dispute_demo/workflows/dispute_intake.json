@@ -7,13 +7,20 @@
   "restartable": true,
   "timeoutPolicy": "ALERT_ONLY",
   "timeoutSeconds": 7776000,
-  "inputParameters": ["disputeId", "cardholderId", "items", "channel"],
+  "inputParameters": [
+    "disputeId",
+    "cardholderId",
+    "items",
+    "channel"
+  ],
   "tasks": [
     {
       "name": "validate_cardholder",
       "taskReferenceName": "validate_cardholder",
       "type": "SIMPLE",
-      "inputParameters": { "cardholderId": "${workflow.input.cardholderId}" }
+      "inputParameters": {
+        "cardholderId": "${workflow.input.cardholderId}"
+      }
     },
     {
       "name": "card_status",
@@ -21,7 +28,9 @@
       "type": "SWITCH",
       "evaluatorType": "value-param",
       "expression": "status",
-      "inputParameters": { "status": "${validate_cardholder.output.status}" },
+      "inputParameters": {
+        "status": "${validate_cardholder.output.status}"
+      },
       "decisionCases": {
         "ACTIVE": []
       },
@@ -65,7 +74,7 @@
       "name": "case_per_charge",
       "taskReferenceName": "case_per_charge",
       "type": "FORK_JOIN_DYNAMIC",
-      "description": "Start one dispute_case sub-workflow per charge; each has its own lifecycle. Optional: a failed case does not cancel its siblings.",
+      "description": "Start one dispute_case sub-workflow per charge; each has its own lifecycle. Optional: a failed case does not cancel its siblings (it is retried by ops and the parent waits for it).",
       "optional": true,
       "inputParameters": {
         "forkTaskWorkflow": "dispute_case",
@@ -79,14 +88,47 @@
       "type": "JOIN"
     },
     {
-      "name": "summarize_dispute",
-      "taskReferenceName": "summarize_dispute",
-      "type": "INLINE",
-      "inputParameters": {
-        "evaluatorType": "graaljs",
-        "results": "${wait_for_all_cases.output}",
-        "expression": "(function () { var r = $.results || {}; var cases = []; var td = 0, tc = 0; for (var k in r) { var o = r[k] || {}; if (!o.caseId) { continue; } cases.push({ caseId: o.caseId, merchantName: o.merchantName, amount: o.amount, decision: o.decision || 'ERROR', approvedAmount: o.approvedAmount || 0, decidedBy: o.decidedBy }); td += Number(o.amount || 0); tc += Number(o.approvedAmount || 0); } cases.sort(function (a, b) { return a.caseId < b.caseId ? -1 : 1; }); return { caseCount: cases.length, totalDisputed: Math.round(td * 100) / 100, totalCredited: Math.round(tc * 100) / 100, cases: cases }; })()"
-      }
+      "name": "until_all_cases_closed",
+      "taskReferenceName": "until_all_cases_closed",
+      "type": "DO_WHILE",
+      "description": "The parent closes last. The JOIN returns when every case workflow has ended, but a case that failed and is being retried by ops is not closed yet: check the case system and keep waiting (durable timer, no resources used) until every case is closed.",
+      "inputParameters": {},
+      "loopCondition": "if ($.collect_case_results['pending'] > 0) { true; } else { false; }",
+      "loopOver": [
+        {
+          "name": "collect_case_results",
+          "taskReferenceName": "collect_case_results",
+          "type": "SIMPLE",
+          "inputParameters": {
+            "disputeId": "${workflow.input.disputeId}",
+            "expectedCount": "${prepare_cases.output.caseCount}"
+          }
+        },
+        {
+          "name": "cases_pending",
+          "taskReferenceName": "cases_pending",
+          "type": "SWITCH",
+          "evaluatorType": "graaljs",
+          "expression": "$.pending > 0 ? 'WAITING' : 'ALL_CLOSED'",
+          "inputParameters": {
+            "pending": "${collect_case_results.output.pending}"
+          },
+          "decisionCases": {
+            "WAITING": [
+              {
+                "name": "recheck_cases",
+                "taskReferenceName": "recheck_cases",
+                "type": "WAIT",
+                "description": "Durable timer before checking again (demo: 30 seconds; production: e.g. 1 hour).",
+                "inputParameters": {
+                  "duration": "30 seconds"
+                }
+              }
+            ]
+          },
+          "defaultCase": []
+        }
+      ]
     },
     {
       "name": "notify_cardholder",
@@ -96,12 +138,12 @@
         "cardholderId": "${workflow.input.cardholderId}",
         "kind": "DISPUTE_SUMMARY",
         "disputeId": "${workflow.input.disputeId}",
-        "data": "${summarize_dispute.output.result}"
+        "data": "${collect_case_results.output}"
       }
     }
   ],
   "outputParameters": {
     "disputeId": "${workflow.input.disputeId}",
-    "summary": "${summarize_dispute.output.result}"
+    "summary": "${collect_case_results.output}"
   }
 }

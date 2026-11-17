@@ -145,10 +145,13 @@
                   <div class="font-medium"><span x-text="c.merchant_name"></span> <span class="text-slate-500 font-normal" x-text="'· ' + money(c.amount)"></span></div>
                   <div class="text-xs text-slate-500"><span x-text="c.id"></span> · <span x-text="c.reasonLabel"></span></div>
                 </div>
-                <span :class="stageClass(c.live.stage === 'RETRYING' ? 'PROCESSING' : c.live.stage, c.live.decision)"
-                      x-text="c.live.stage === 'RETRYING' ? 'Processing' : c.live.stageLabel"></span>
+                <span :class="stageClass(behindScenes(c) ? 'PROCESSING' : c.live.stage, c.live.decision)"
+                      x-text="behindScenes(c) ? 'Processing' : c.live.stageLabel"></span>
                 <span x-show="c.live.stage==='RESOLVED' && c.live.decision !== 'REJECT'" class="text-sm font-medium tabular-nums" :class="DECISION_STYLE[c.live.decision]" x-text="'+' + money(c.live.approvedAmount)"></span>
                 <span class="text-slate-400 text-sm" x-text="open[c.id] ? '▲' : '▼'"></span>
+              </div>
+              <div x-show="['OPS_EXCEPTION','ERROR'].includes(c.live.stage)" class="mt-1 text-xs text-slate-500">
+                We're still working on this charge. Your provisional credit stays in place.
               </div>
 
               <!-- Info request -->
@@ -277,6 +280,7 @@ function portal() {
       return Object.values(groups).sort((a, b) => (a.key === "open" ? -1 : b.key === "open" ? 1 : b.key.localeCompare(a.key)));
     },
     get allCases() { return this.disputes.flatMap(d => d.cases); },
+    behindScenes(c) { return ["RETRYING", "OPS_EXCEPTION", "ERROR"].includes(c.live.stage); },
     get openCaseCount() { return this.allCases.filter(c => c.live.stage !== "RESOLVED").length; },
     get actionNeeded() { return this.allCases.filter(c => c.live.infoRequest).length; },
     get creditTotal() { return this.ledger.reduce((s, e) => s + e.amount, 0); },

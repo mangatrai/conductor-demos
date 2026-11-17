@@ -41,7 +41,8 @@ const STAGE_STYLE = {
   AWAITING_MERCHANT: "bg-sky-100 text-sky-800 ring-sky-600/20",
   AWAITING_CARDHOLDER: "bg-amber-100 text-amber-900 ring-amber-600/30",
   RETRYING: "bg-orange-100 text-orange-800 ring-orange-600/20",
-  ERROR: "bg-rose-100 text-rose-800 ring-rose-600/20",
+  ERROR: "bg-rose-600 text-white ring-rose-700",
+  OPS_EXCEPTION: "bg-fuchsia-100 text-fuchsia-800 ring-fuchsia-600/20",
   CANCELLED: "bg-slate-100 text-slate-600 ring-slate-500/20",
 };
 const OUTCOME_STYLE = { REJECT: "bg-rose-100 text-rose-800 ring-rose-600/20", PARTIAL: "bg-amber-100 text-amber-900 ring-amber-600/30" };
@@ -54,7 +55,7 @@ const DECISION_STYLE = {
 
 const EVENT_DOT = {
   done: "bg-slate-400", warn: "bg-orange-500", wait: "bg-sky-500 animate-pulse",
-  action: "bg-amber-500 animate-pulse", final: "bg-emerald-500",
+  action: "bg-amber-500 animate-pulse", final: "bg-emerald-500", error: "bg-rose-600",
 };
 
 const CATEGORY_LABEL = {

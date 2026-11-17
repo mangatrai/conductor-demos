@@ -23,6 +23,7 @@ from bank.db import REASONS, connect, row, rows
 
 STATIC = Path(__file__).resolve().parent / "static"
 ANALYST_ID = "alex.morgan@bank-demo.test"
+OPS_ID = "ops.desk@bank-demo.test"
 
 
 @asynccontextmanager
@@ -249,6 +250,40 @@ def decide(case_id: str, body: Decision):
     return {"ok": True}
 
 
+class OpsAction(BaseModel):
+    decision: str
+    note: str = ""
+
+
+@app.post("/api/cases/{case_id}/ops-action")
+def ops_action(case_id: str, body: OpsAction):
+    """Complete the ops exception Human task: retry filing now, or proceed without a chargeback."""
+    if body.decision not in ("RETRY", "PROCEED_WITHOUT_CHARGEBACK"):
+        raise HTTPException(400, "decision must be RETRY or PROCEED_WITHOUT_CHARGEBACK")
+    case = _get_case(case_id)
+    st = live.live_state(case["workflow_id"])
+    task = st.get("opsTask")
+    if not task:
+        raise HTTPException(409, "This case is not waiting for ops")
+    o = client()
+    o.claim_human_task_external(task["taskId"], OPS_ID)
+    o.complete_human_task(task["taskId"], {"decision": body.decision, "note": body.note})
+    live.invalidate(case["workflow_id"])
+    return {"ok": True}
+
+
+@app.post("/api/cases/{case_id}/retry")
+def retry_case(case_id: str):
+    """Orkes 'Retry': resume the failed case workflow from the failed step. Completed steps are not re-run."""
+    case = _get_case(case_id)
+    wf = live.get_workflow_cached(case["workflow_id"])
+    if wf["status"] not in ("FAILED", "TIMED_OUT"):
+        raise HTTPException(409, f"Case workflow is {wf['status']}, nothing to retry")
+    client().call("POST", f"/workflow/{case['workflow_id']}/retry")
+    live.invalidate(case["workflow_id"])
+    return {"ok": True}
+
+
 @app.get("/api/search")
 def search(q: str):
     """Orkes workflow search: correlation ID + free text over workflow input/output."""
@@ -274,7 +309,7 @@ def merchant_cases():
     out = []
     for c in merchant_sim.open_case_rows():
         st = live.live_state(c["workflow_id"])
-        if st.get("merchantWait") or st.get("stage") == "RETRYING":
+        if st.get("merchantWait") or st.get("stage") in ("RETRYING", "OPS_EXCEPTION"):
             out.append({"caseId": c["id"], "merchant": c["merchant_name"], "amount": c["amount"],
                         "profile": c["sim_behaviour"], "cardholder": c["cardholder_name"],
                         "reasonLabel": REASONS.get(c["reason_code"], c["reason_code"]),
@@ -308,12 +343,14 @@ def merchant_respond(case_id: str, body: MerchantReply):
 @app.get("/api/settings")
 def settings():
     return {"networkOutage": db.get_setting("network_outage", "off") == "on",
-            "merchantAutoReply": db.get_setting("merchant_auto_reply", "on") == "on"}
+            "merchantAutoReply": db.get_setting("merchant_auto_reply", "on") == "on",
+            "workerBug": db.get_setting("worker_bug", "off") == "on"}
 
 
 class SettingsBody(BaseModel):
     networkOutage: bool | None = None
     merchantAutoReply: bool | None = None
+    workerBug: bool | None = None
 
 
 @app.post("/api/settings")
@@ -322,6 +359,8 @@ def update_settings(body: SettingsBody):
         db.set_setting("network_outage", "on" if body.networkOutage else "off")
     if body.merchantAutoReply is not None:
         db.set_setting("merchant_auto_reply", "on" if body.merchantAutoReply else "off")
+    if body.workerBug is not None:
+        db.set_setting("worker_bug", "on" if body.workerBug else "off")
     return settings()
 
 
