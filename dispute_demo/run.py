@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parent
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8000)))
+    ap.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"),
+                    help="bind address (the container uses 0.0.0.0)")
     ap.add_argument("--no-workers", action="store_true", help="web app only (run workers elsewhere)")
     args = ap.parse_args()
 
@@ -35,7 +37,7 @@ def main() -> None:
                                    start_new_session=True)
     try:
         print(f"\n  Dispute console   http://localhost:{args.port}/\n", flush=True)
-        uvicorn.run("app.main:app", host="127.0.0.1", port=args.port, log_level="warning")
+        uvicorn.run("app.main:app", host=args.host, port=args.port, log_level="warning")
     finally:
         if workers and workers.poll() is None:
             os.killpg(workers.pid, signal.SIGTERM)

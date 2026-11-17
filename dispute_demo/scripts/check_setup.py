@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.orkes import _ENV_FILE, OrkesError, client  # noqa: E402  (importing loads .env)
+from app.orkes import OrkesError, client  # noqa: E402  (importing loads .env)
 
 REQUIRED = ["CONDUCTOR_SERVER_URL", "CONDUCTOR_AUTH_KEY", "CONDUCTOR_AUTH_SECRET"]
 
@@ -23,8 +23,9 @@ def fail(msg: str) -> None:
 def main() -> None:
     missing = [k for k in REQUIRED if not os.environ.get(k) or "<" in os.environ[k]]
     if missing:
-        fail(f"Missing in {_ENV_FILE}: {', '.join(missing)}\n"
-             f"    Copy .env.example to .env at the repository root and fill in your Orkes cluster URL and access key.")
+        fail(f"Missing: {', '.join(missing)}\n"
+             f"    Copy .env.example to .env at the repository root and fill in your Orkes\n"
+             f"    cluster URL and access key. In a container, pass them with --env-file or -e.")
     url = os.environ["CONDUCTOR_SERVER_URL"].rstrip("/")
     if not url.endswith("/api"):
         fail(f"CONDUCTOR_SERVER_URL should end with /api (got {url})")

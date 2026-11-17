@@ -36,14 +36,14 @@ What you can show with it:
 
 ### The pieces
 
-Everything except Orkes runs on your machine, started by one script.
+Everything except Orkes runs on your machine: one container, or one script.
 
 ```mermaid
 flowchart LR
   subgraph browser["Your browser"]
     console["Dispute console<br/>localhost:8000"]
   end
-  subgraph local["Your machine (start.sh)"]
+  subgraph local["Your machine (container or start.sh)"]
     app["Web app<br/>(FastAPI)"]
     workers["Workers<br/>(Python, conductor-python SDK)"]
     db[("Bank database (SQLite)<br/>accounts, ledger, cases, letters")]
@@ -124,7 +124,7 @@ flowchart TD
 
 Triage is a **decision rule saved in Orkes**, named `dispute_triage_rules` (**Definitions → Decision Rules**).
 The `triage_rules` task references it by name, and the **first matching row wins**.
-`rules/dispute_rules.csv` is its starting content: `start.sh` saves it to Orkes on every run, so each demo starts from the same rules.
+`rules/dispute_rules.csv` is its starting content: the demo saves it to Orkes every time it starts, so each demo starts from the same rules.
 
 | outsideWindow | amount | category | priorDisputes90d | route | reason |
 |---|---|---|---|---|---|
@@ -178,23 +178,23 @@ sequenceDiagram
 |---|---|
 | An **Orkes Conductor** cluster, **v5.6 or later** | Orkes Cloud or Enterprise, with **Human Tasks** enabled. Tested on v5.6.2. Saved decision rules need v5.6. Open-source Conductor doesn't have the `HUMAN` and `BUSINESS_RULE` tasks. |
 | An **application access key** | In the Orkes UI: **Access Control → Applications → Create application**. Give it the **Worker**, **Metadata API** and **Business Rule Manager** roles (tested with those plus **Application Creator**). Then **Create access key** and copy the key ID and secret. Everything the demo registers is owned by this application. |
-| **Python 3.10 or newer** | Check with `python3 --version`. [uv](https://docs.astral.sh/uv/) is optional; the script uses it if present because it's faster. |
-| A macOS or Linux shell | On Windows, use WSL. |
+| **Docker or Podman**, *or* **Python 3.10+** | The container needs nothing else installed. Without a container, `start.sh` needs Python (check with `python3 --version`) and a macOS or Linux shell (on Windows, use WSL). [uv](https://docs.astral.sh/uv/) is optional; `start.sh` uses it if present because it's faster. |
 | Internet access | The console loads Tailwind and Alpine.js from public CDNs. |
-| Port 8000 free | Or choose another with `PORT=9000`. |
+| Port 8000 free | Or choose another (see below). |
 
 ---
 
 ## 3. Start the demo
 
+### Step 1: credentials
+
 ```bash
 git clone https://github.com/mangatrai/conductor-demos.git
 cd conductor-demos
-cp .env.example .env          # then edit .env (see below)
-./dispute_demo/start.sh
+cp .env.example .env          # then edit .env
 ```
 
-Edit `.env` (at the repository root) before running the script:
+Fill in `.env` (at the repository root). It is git-ignored and is never copied into the container image.
 
 ```bash
 CONDUCTOR_SERVER_URL=https://<your-cluster>.orkesconductor.io/api   # must end with /api
@@ -202,14 +202,52 @@ CONDUCTOR_AUTH_KEY=<key id>
 CONDUCTOR_AUTH_SECRET=<key secret>
 ```
 
-`start.sh` does everything, in this order:
+### Step 2, option A: run it in a container (recommended)
 
-1. Picks a Python: `$PYTHON` if set, else your active virtualenv, else it creates `.venv` at the repository root.
-2. Installs `dispute_demo/requirements.txt`.
-3. Checks `.env`, connects to Orkes, and checks the version and roles. If something is wrong, it stops here and says what to fix.
-4. Saves the triage decision rule, then registers the task definitions, the two user forms and the two workflows. Re-running this is safe.
-5. Resets the demo: terminates and deletes earlier `dispute_*` executions and reseeds the bank data. Use `./dispute_demo/start.sh --keep` to skip this step.
-6. Starts the web app and the workers, and stays in the foreground. **Ctrl+C** stops everything.
+Nothing to install except Docker or Podman. The image holds the app, the workers and the bank database.
+
+```bash
+cd dispute_demo
+docker build -t dispute-demo .
+docker run --rm -it -p 8000:8000 --env-file ../.env dispute-demo
+```
+
+With Podman, use the same commands with `podman` in place of `docker`.
+
+The container reads its settings from environment variables, passed with `--env-file` or `-e`
+(the [Dockerfile](Dockerfile) lists them too):
+
+| Variable | | |
+|---|---|---|
+| `CONDUCTOR_SERVER_URL` | required | Orkes API URL, ending in `/api` |
+| `CONDUCTOR_AUTH_KEY` | required | Application access key ID |
+| `CONDUCTOR_AUTH_SECRET` | required | Application access key secret |
+| `KEEP_DATA` | optional | `1` skips the reset at startup and keeps earlier executions. Default `0` |
+| `MERCHANT_AUTO_REPLY_SECONDS` | optional | How long auto-reply merchants wait before answering. Default `20` |
+
+- **Another port:** change the host side of `-p`, for example `-p 9000:8000`, then open `http://localhost:9000/`. The startup message still says 8000, the port inside the container.
+- **Stop:** press **Ctrl+C**, or run `docker stop <container>` from another terminal. `--rm` removes the container, and the next run starts with fresh bank data.
+- **Run in the background:** replace `-it` with `-d --name dispute-demo`, follow with `docker logs -f dispute-demo` and stop with `docker stop dispute-demo`.
+- **After changing the code:** run `docker build` again.
+
+### Step 2, option B: run it with Python
+
+```bash
+./dispute_demo/start.sh
+```
+
+`start.sh` picks a Python: `$PYTHON` if set, else your active virtualenv, else it creates `.venv` at the repository root.
+It installs `dispute_demo/requirements.txt`, then runs the startup steps below. Use `PORT=9000 ./dispute_demo/start.sh` for another port
+and `./dispute_demo/start.sh --keep` to skip the reset. **Ctrl+C** stops everything.
+
+### What happens at startup
+
+The container and `start.sh` run the same steps:
+
+1. Check `.env`, connect to Orkes, and check the version and roles. If something is wrong, it stops here and says what to fix.
+2. Save the triage decision rule, then register the task definitions, the two user forms and the two workflows. Re-running this is safe.
+3. Reset the demo: terminate and delete earlier `dispute_*` executions and reseed the bank data (skipped with `KEEP_DATA=1` or `--keep`).
+4. Start the web app and the workers, and stay in the foreground.
 
 When it's ready you'll see:
 
@@ -359,7 +397,7 @@ decision in its history. In the console, clicking VoltCity shows the same story 
 1. In Orkes, open **Definitions → Decision Rules → `dispute_triage_rules`**, change `>100` to `>500` in the *amount* column and **Save**.
 2. In the console's cardholder app (**Statement**), dispute a **FreshCart Grocery** charge between $100 and $500.
    It's auto-approved as *Low-risk dispute*, where before it would have gone to an analyst.
-3. Change it back, or run `start.sh` again, which restores the rules from `rules/dispute_rules.csv`.
+3. Change it back, or restart the demo (container or `start.sh`), which restores the rules from `rules/dispute_rules.csv`.
 
 ### Customer questions
 
@@ -383,38 +421,40 @@ decision in its history. In the console, clicking VoltCity shows the same story 
 
 ## 6. Stop, reset, troubleshoot
 
-- **Stop:** press Ctrl+C in the terminal running `start.sh`. This stops the app and all workers.
+- **Stop:** press Ctrl+C in the terminal running the container or `start.sh`. This stops the app and all workers.
 - **Reset between runs:** click **Reset** in the console. It terminates running disputes and reseeds the bank data.
-- **Full reset:** run `./dispute_demo/start.sh` again. It also deletes old executions from Orkes and restores the triage rule, unless you pass `--keep`.
+- **Full reset:** restart the container or `start.sh`. This also deletes old executions from Orkes and restores the triage rule, unless you set `KEEP_DATA=1` or pass `--keep`.
 
 | Symptom | Fix |
 |---|---|
-| `✗ Missing in .../.env` | Create `.env` at the repository root from `.env.example` and fill in all three Orkes values. |
+| `✗ Missing: CONDUCTOR_...` | Create `.env` at the repository root from `.env.example` and fill in all three Orkes values. With a container, check that you passed `--env-file ../.env` from the `dispute_demo` folder. |
 | `✗ Orkes rejected the request (401/403)` | The key ID or secret is wrong, or the application lacks the **Worker** or **Metadata API** role. |
 | `✗ The access key can't manage decision rules` | Add the **Business Rule Manager** role to the application (**Access Control → Applications**). |
 | `✗ Orkes ... is too old` | Saved decision rules need Orkes v5.6 or later. |
 | `CONDUCTOR_SERVER_URL should end with /api` | Use `https://<cluster>/api`, not the UI address. |
 | Registration fails on the forms or `HUMAN` tasks | Human Tasks aren't enabled on the cluster. |
-| `Address already in use` | Something else is using port 8000. Run `PORT=9000 ./dispute_demo/start.sh`. |
+| `Address already in use` / `port is already allocated` | Something else is using port 8000. Use `-p 9000:8000` with the container, or `PORT=9000 ./dispute_demo/start.sh`. |
 | "Priya's three charges are already disputed" | Click **Reset** first. |
-| Cases stuck at *Processing* with no progress | The workers aren't running. Check the `start.sh` terminal for errors and restart it. |
+| Cases stuck at *Processing* with no progress | The workers aren't running. Check the container or `start.sh` output for errors and restart it. |
 | The console is blank or unstyled | The browser can't reach the Tailwind or Alpine.js CDNs (a proxy, or you're offline). |
-| You want to use an existing Python env | Run `PYTHON=/path/to/python ./dispute_demo/start.sh`, or activate the env before running it. |
+| `start.sh`: you want to use an existing Python env | Run `PYTHON=/path/to/python ./dispute_demo/start.sh`, or activate the env before running it. |
 
 ---
 
 ## 7. Automated end-to-end test
 
-With the demo running, in a second terminal:
+With the demo running (container or `start.sh`), in a second terminal:
 
 ```bash
 cd dispute_demo
-../.venv/bin/python scripts/smoke_test.py      # or your own Python env
+../.venv/bin/python scripts/smoke_test.py      # or any Python with `requests`
 ```
+
+The test only calls the console's web API, so it works against the container too (add `--base http://localhost:9000` for another port).
 
 It drives the whole story through the web API in about 8 minutes, with 27 checks: the main dispute, retries,
 the question-and-answer loop, a partial approval, the parent closing last, a long outage handled by ops, and a worker bug
-fixed with Retry. Click **Reset** in the console (or run `start.sh` again) afterwards.
+fixed with Retry. Click **Reset** in the console (or restart the demo) afterwards.
 
 ---
 
@@ -422,8 +462,10 @@ fixed with Retry. Click **Reset** in the console (or run `start.sh` again) after
 
 ```
 dispute_demo/
-├── start.sh                    one command: set up, register, reset, run
-├── run.py                      starts the web app and workers (used by start.sh)
+├── Dockerfile                  container image: app + workers (env vars listed inside)
+├── docker-entrypoint.sh        container startup: check, register, reset, run
+├── start.sh                    without a container: set up Python, register, reset, run
+├── run.py                      starts the web app and workers (used by both)
 ├── requirements.txt
 ├── workflows/
 │   ├── dispute_intake.json     parent workflow

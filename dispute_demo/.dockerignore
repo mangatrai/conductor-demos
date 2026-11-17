@@ -1,0 +1,10 @@
+# Keep credentials, local data and docs out of the image
+**/.env
+**/.env.*
+**/*.db
+**/*.db-*
+**/__pycache__
+**/*.pyc
+**/.venv
+**/.DS_Store
+docs/
