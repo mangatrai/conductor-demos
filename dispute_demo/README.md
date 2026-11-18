@@ -1,6 +1,6 @@
 # Credit card disputes on Orkes Conductor
 
-A working demo of a card issuer's dispute process, built on [Orkes Conductor](https://orkes.io).
+A working example of a card issuer's dispute process, built on [Orkes Conductor](https://orkes.io).
 It also runs on open-source Conductor (3.34+); see [Running on Conductor OSS](#running-on-conductor-oss).
 
 > **One call, one case per charge, the parent closes last.**
@@ -9,7 +9,7 @@ It also runs on open-source Conductor (3.34+); see [Running on Conductor OSS](#r
 
 ![The dispute console during a run](docs/images/03-console-analyst.png)
 
-What you can show with it:
+What it demonstrates:
 
 | Capability | Where you see it |
 |---|---|
@@ -23,13 +23,14 @@ What you can show with it:
 **Contents**
 1. [How it works](#1-how-it-works)
 2. [Prerequisites](#2-prerequisites)
-3. [Start the demo](#3-start-the-demo)
+3. [Run it](#3-run-it)
 4. [The console](#4-the-console)
-5. [Demo script](#5-demo-script)
-6. [Stop, reset, troubleshoot](#6-stop-reset-troubleshoot)
-7. [Automated end-to-end test](#7-automated-end-to-end-test)
-8. [Project layout](#8-project-layout)
-9. [Design notes](#9-design-notes)
+5. [End-to-end walkthrough](#5-end-to-end-walkthrough)
+6. [FAQ](#6-faq)
+7. [Stop, reset, troubleshoot](#7-stop-reset-troubleshoot)
+8. [Automated tests](#8-automated-tests)
+9. [Project layout](#9-project-layout)
+10. [Design notes](#10-design-notes)
 
 ---
 
@@ -37,7 +38,7 @@ What you can show with it:
 
 ### The pieces
 
-Everything except Orkes runs on your machine: one container, or one script.
+Everything except Conductor runs on your machine: one container, or one script.
 
 ```mermaid
 flowchart LR
@@ -126,7 +127,7 @@ flowchart TD
   filed -- "no, retries exhausted" --> ops[/"HUMAN: ops exception"/]
   ops -- "Retry filing now" --> file
   ops -- "Proceed without chargeback" --> outcome
-  filed -- yes --> merchant["WAIT: merchant response<br/>3 min deadline in the demo"]
+  filed -- yes --> merchant["WAIT: merchant response<br/>3 min here, 30 days in production"]
   merchant --> outcome["merchant_outcome"]
   outcome --> review{"Needs review?<br/>rules said so, or merchant contested"}
   review -- no --> approve["Decision: APPROVE"]
@@ -145,7 +146,7 @@ flowchart TD
 
 Triage is a **decision rule saved in Orkes**, named `dispute_triage_rules` (**Definitions → Decision Rules**).
 The `triage_rules` task references it by name, and the **first matching row wins**.
-`rules/dispute_rules.csv` is its starting content: the demo saves it to Orkes every time it starts, so each demo starts from the same rules.
+`rules/dispute_rules.csv` is its starting content: it is saved to Orkes every time the application starts, so each run starts from the same rules.
 
 | outsideWindow | amount | category | priorDisputes90d | route | reason |
 |---|---|---|---|---|---|
@@ -200,16 +201,16 @@ sequenceDiagram
 | You need | Notes |
 |---|---|
 | An **Orkes Conductor** cluster, **v5.6 or later**, *or* **Conductor OSS 3.34 or later** | Orkes: Cloud or Enterprise, with **Human Tasks** enabled. Tested on v5.6.2. Saved decision rules need v5.6. OSS: tested on 3.34.0, with a few differences (see [Running on Conductor OSS](#running-on-conductor-oss)). |
-| An **application access key** (Orkes only) | In the Orkes UI: **Access Control → Applications → Create application**. Give it the **Worker**, **Metadata API** and **Business Rule Manager** roles (tested with those plus **Application Creator**). Then **Create access key** and copy the key ID and secret. Everything the demo registers is owned by this application. |
+| An **application access key** (Orkes only) | In the Orkes UI: **Access Control → Applications → Create application**. Give it the **Worker**, **Metadata API** and **Business Rule Manager** roles (tested with those plus **Application Creator**). Then **Create access key** and copy the key ID and secret. Everything the application registers is owned by this application. |
 | **Docker or Podman**, *or* **Python 3.10+** | The container needs nothing else installed. Without a container, `start.sh` needs Python (check with `python3 --version`) and a macOS or Linux shell (on Windows, use WSL). [uv](https://docs.astral.sh/uv/) is optional; `start.sh` uses it if present because it's faster. |
 | Internet access | The console loads Tailwind and Alpine.js from public CDNs. |
 | Port 8000 free | Or choose another (see below). |
 
 ---
 
-## 3. Start the demo
+## 3. Run it
 
-### Step 1: credentials
+### Credentials
 
 ```bash
 git clone https://github.com/mangatrai/conductor-demos.git
@@ -235,7 +236,7 @@ CONDUCTOR_SERVER_URL=http://localhost:8080/api    # from a container: http://hos
 
 `CONDUCTOR_FLAVOR` may be left out: it is then `orkes` when an access key is set, otherwise `oss`.
 
-### Step 2, option A: run it in a container (recommended)
+### Option A: run it in a container (recommended)
 
 Nothing to install except Docker or Podman. The image holds the app, the workers and the bank database.
 
@@ -265,7 +266,7 @@ The container reads its settings from environment variables, passed with `--env-
 - **Run in the background:** replace `-it` with `-d --name dispute-demo`, follow with `docker logs -f dispute-demo` and stop with `docker stop dispute-demo`.
 - **After changing the code:** run `docker build` again.
 
-### Step 2, option B: run it with Python
+### Option B: run it with Python
 
 ```bash
 ./dispute_demo/start.sh
@@ -281,7 +282,7 @@ The container and `start.sh` run the same steps:
 
 1. Check `.env`, connect to Conductor, and check the version (and on Orkes, the roles). If something is wrong, it stops here and says what to fix.
 2. Save the triage decision rule, then register the task definitions, the two user forms and the two workflows. Re-running this is safe. (On OSS: no rule or forms; triage is registered as an INLINE task.)
-3. Reset the demo: terminate and delete earlier `dispute_*` executions and reseed the bank data (skipped with `KEEP_DATA=1` or `--keep`).
+3. Reset: terminate and delete earlier `dispute_*` executions and reseed the bank data (skipped with `KEEP_DATA=1` or `--keep`).
 4. Start the web app and the workers, and stay in the foreground.
 
 When it's ready you'll see:
@@ -294,13 +295,13 @@ When it's ready you'll see:
 Dispute workers polling. Ctrl+C to stop.
 ```
 
-**Before you present**, open two browser tabs: the console and the Orkes UI (**Executions → Workflow**).
-Share the console tab, and switch to Orkes when the script says so.
+**Tip:** keep the console and the Orkes UI (**Executions → Workflow**) open side by side to watch the workflows
+while you use the console.
 
 ### Running on Conductor OSS
 
 The same workflows, workers and console run on open-source Conductor. Tested on **Conductor OSS 3.34.0**
-(the full end-to-end test passes, see [section 7](#7-automated-end-to-end-test)).
+(the full end-to-end test passes, see [section 8](#8-automated-tests)).
 
 **Start Conductor OSS locally** (single container, built-in SQLite storage, UI and API on port 8080):
 
@@ -308,8 +309,8 @@ The same workflows, workers and console run on open-source Conductor. Tested on 
 docker run -d --name conductor-oss -p 8080:8080 -e JAVA_OPTS="-Xmx512m" conductoross/conductor:3.34.0
 ```
 
-Then set `CONDUCTOR_FLAVOR=oss` and the server URL in `.env` (see Step 1) and start the demo as usual.
-Running the demo in a container next to it:
+Then set `CONDUCTOR_FLAVOR=oss` and the server URL in `.env` (see [Credentials](#credentials)) and start the application as usual.
+Running the application in a container next to it:
 
 ```bash
 docker run --rm -it -p 8000:8000 \
@@ -327,21 +328,21 @@ Notes for the container:
   Engine, also add `--add-host=host.docker.internal:host-gateway`.
 - **UI on another port:** older OSS setups serve the UI separately (e.g. on port 5000). Set `CONDUCTOR_UI_URL` so the
   console's links open it.
-- **Search indexing** (on by default in OSS) is used by the console's Reset and search. With indexing off, the demo still
-  runs, but Reset can't find earlier executions to stop.
+- **Search indexing** (on by default in OSS) is used by the console's Reset and search. With indexing off, the application
+  still runs, but Reset can't find earlier executions to stop.
 - **Memory:** on a small Podman VM (2 GB), the `JAVA_OPTS` cap keeps Conductor from being killed for running out of memory.
 
-**What is different on OSS.** Everything in the console works the same. These Orkes features are not in OSS, so the demo swaps them:
+**What is different on OSS.** Everything in the console works the same. These Orkes features are not in OSS, so the application swaps them:
 
 | On Orkes | On OSS |
 |---|---|
-| Triage is a **decision rule** saved in Orkes (`BUSINESS_RULE` task), editable in the UI | Triage is an **INLINE** (JavaScript) task generated from `rules/dispute_rules.csv`, with the same output. To change a rule, edit the CSV and rerun `scripts/register.py` (or restart the demo) |
+| Triage is a **decision rule** saved in Orkes (`BUSINESS_RULE` task), editable in the UI | Triage is an **INLINE** (JavaScript) task generated from `rules/dispute_rules.csv`, with the same output. To change a rule, edit the CSV and rerun `scripts/register.py` (or restart the application) |
 | Analyst and ops steps are **Human tasks** with user forms, assignment groups and SLA escalation; they can be worked in the Orkes Task Inbox | The same `HUMAN` tasks, but OSS treats them as a plain wait: no inbox, forms, assignment or SLA. The console completes them through the standard task API (`POST /api/tasks`) |
 | Access keys and roles | No login |
 
-So in the demo script, skip the Orkes-only "show in Orkes" steps: Decision Rules (Act 2, the optional live rule
-change), the Task Inbox and user forms (Act 3). Executions, retries, the ops queue, Retry from the failed step and
-the parent closing last all show the same in the OSS UI.
+In the walkthrough below, the decision rule editor (step 2 and the optional rule change) and the Task Inbox and user
+forms (step 3) are Orkes only. Executions, retries, the ops queue, Retry from the failed step and the parent closing
+last look the same in the OSS UI.
 
 ---
 
@@ -363,7 +364,7 @@ One screen shows the whole process: what the cardholder sees, every case, and ev
   | Failed step | The case workflow is `FAILED` | Retry from failed step |
   | Waiting on Priya | `await_cardholder_info` `WAIT` task | None; she answers in the cardholder app |
 
-- **Top bar (demo controls).**
+- **Top bar (simulation controls).**
   - **Network outage:** the card network rejects VoltCity's chargebacks with HTTP 503. Other merchants are unaffected.
   - **Worker bug:** the final ledger step (`finalize_case`) fails with a non-retryable error, like a bad deploy.
   - **Run Priya's scenario:** disputes StreamMax $15.99, VoltCity Electronics $649.00 and Ace Rapid Plumbing $85.00 in one go.
@@ -375,108 +376,107 @@ Colours have one meaning each: **indigo** means a person must act, **amber** mea
 
 ---
 
-## 5. Demo script
+## 5. End-to-end walkthrough
 
-About 10 minutes, in five acts, then Orkes. Each act lists what to click, what happens, what to say, and what to show in Orkes.
-Two things happen on their own while you talk: merchants reply about 20 seconds after a chargeback is filed,
-and VoltCity's retries run out about 2 minutes after the dispute starts.
+One cardholder, Priya Shah, disputes three charges in a single request. The steps below follow that dispute from start
+to finish, about 10 minutes in all. Each step says what to do in the console, what happens, and where to see it in Orkes.
+Two things happen on their own along the way: merchants reply about 20 seconds after a chargeback is filed, and
+VoltCity's chargeback retries run out about 2 minutes after the dispute starts.
 
-### Act 1: One call, one case per charge
+### Step 1: One request, one case per charge
 
-**Click:** **Network outage** on, then **Run Priya's scenario**.
+**Try it:** turn **Network outage** on, then click **Run Priya's scenario**.
 
-**What happens:** dispute `D-1001` appears with three cases, `DSP-1001-1` to `-3`. Each gets a provisional credit.
-StreamMax and Ace file their chargebacks and wait for the merchant; VoltCity's filing fails and starts retrying.
+**What happens:** dispute `D-1001` appears with three cases, `DSP-1001-1` to `-3`, each with its own ID, deadline and
+lifecycle. The cases run independently and the dispute waits for all of them. Each case posts a provisional credit
+straight away. StreamMax and Ace file their chargebacks and wait for the merchant; VoltCity's filing fails and starts
+retrying.
 
 ![Three cases in flight](docs/images/02-console-cases-open.png)
 
-**Say:** Priya called about three charges. That one call is one dispute, and each charge is its own case with its own ID,
-deadline and lifecycle. The cases run independently; the dispute waits for all of them.
-Priya already has her money back as provisional credit.
-
-**Show in Orkes:** open the parent (**Open in Orkes ↗** on the dark card), click **Expand** on `case_per_charge`.
-The dynamic fork started one `dispute_case` workflow per charge, side by side. Next to it, the parent's other branch
+**In Orkes:** open the parent (**Open in Orkes ↗** on the dark card) and click **Expand** on `case_per_charge`. The
+dynamic fork started one `dispute_case` workflow per charge, side by side. Next to it, the parent's second branch
 watches the dispute until every case is closed.
 
 ![The parent: the watch loop and the dynamic fork, side by side](docs/images/09-orkes-parent-fork.png)
 
-### Act 2: Rules decide
+### Step 2: Rules decide the route
 
-**What happens:** each case card shows the rule that routed it: StreamMax *Low-risk dispute* (auto-approve),
-VoltCity *Amount over $100* and Ace *Human-labor service category* (both to an analyst).
+**What happens:** each case card shows the rule that routed it: StreamMax *Low-risk dispute* (auto-approve), VoltCity
+*Amount over $100* and Ace *Human-labor service category* (both to an analyst). Routing is a decision table, not code:
+a business user maintains it, and a change applies to the next case.
 
-**Say:** routing is a decision table, not code. A business user maintains it in Orkes, and a change applies to the next case.
-
-**Show in Orkes:** **Definitions → Decision Rules → `dispute_triage_rules`**. In a case execution, the `triage_rules`
-task's input has the facts (amount, category, window, history) and its output has `route` and `reason`.
+**In Orkes:** **Definitions → Decision Rules → `dispute_triage_rules`**. In a case execution, the `triage_rules` task's
+input has the facts (amount, category, dispute window, history) and its output has `route` and `reason`.
 
 ![The triage decision rule in Orkes](docs/images/11-orkes-decision-rule.png)
 
-### Act 3: People in the loop
+### Step 3: People in the loop
 
-**What happens:** about 25 seconds in, StreamMax's merchant accepts and the case closes: the first one done, while the
-dispute stays open. Ace's merchant contests, so Ace lands in **Action needed** as an **Analyst review**.
+**What happens:** about 25 seconds in, StreamMax's merchant accepts and that case closes, while the dispute stays open.
+Ace's merchant contests, so Ace appears in **Action needed** as an **Analyst review**.
 
 ![Ace waiting for an analyst](docs/images/03-console-analyst.png)
 
-**Click:**
+**Try it:**
 1. On Ace's analyst card, open **Ask the cardholder…** and click **Send question to Priya**.
-   The case now waits on Priya; her app shows the question with an answer box.
-2. In the cardholder app, click **Send answer**. Ace comes back to the analyst as round 2, with the conversation attached.
+   The case now waits for Priya; her app shows the question with an answer box.
+2. In the cardholder app, click **Send answer**. Ace returns to the analyst as round 2, with the conversation attached.
 3. Click **Partial** ($40 is prefilled). Ace closes as *Partially approved*.
 
 ![The case waiting on Priya's answer](docs/images/04-console-question.png)
 
-**Say:** each card on the right is an Orkes task with a form, an assignee group and an SLA, escalating to supervisors if
-it's missed. When the analyst asks Priya a question, the workflow itself waits for her, for days if needed, with no
-polling in our code. This console is the bank's own UI; the same tasks are in the Orkes Human Tasks inbox.
+Each card under **Action needed** is an Orkes task with a form, an assignee group and an SLA that escalates to
+supervisors if it's missed. While the analyst waits for Priya's answer, the workflow itself holds the wait, for days if
+needed, with no polling in the application. The console is the bank's own UI; the same tasks can also be worked in the
+Orkes Human Tasks inbox.
 
-**Show in Orkes:** **Executions → Human Tasks**, and **Definitions → User Forms → `dispute_review_form`**: the analyst's
-form, built in a drag-and-drop editor.
+**In Orkes:** **Executions → Human Tasks**, and **Definitions → User Forms → `dispute_review_form`**: the analyst's form,
+built in a drag-and-drop editor.
 
 ![The analyst form in the Orkes form builder](docs/images/12-orkes-form-builder.png)
 
-### Act 4: It never silently dies
+### Step 4: Failures are handled, never silent
 
 **What happens:** VoltCity has been retrying with growing gaps. About 2 minutes in, the retries run out and the case
-moves to **Ops exception**. It isn't failed: it's on hold with an owner and an SLA. Priya still just sees *Processing*.
+moves to **Ops exception**. It isn't failed: it's on hold with an owner and an SLA. Priya still sees *Processing*.
 
 ![VoltCity on hold with ops](docs/images/05-console-ops.png)
 
-**Click:**
-1. **Network outage** off, then **Retry filing now**. The chargeback files, the merchant contests, and VoltCity goes to an analyst.
-2. **Worker bug** on, then **Approve** VoltCity. The last step fails and the case turns red: *Failed at finalize_case*.
+**Try it:**
+1. Turn **Network outage** off, then click **Retry filing now**. The chargeback files, the merchant contests, and
+   VoltCity goes to an analyst.
+2. Turn **Worker bug** on, then **Approve** VoltCity. The last step fails and the case turns red: *Failed at finalize_case*.
 
 ![A failed step](docs/images/06-console-failed-step.png)
 
-3. **Worker bug** off ("we shipped the fix"), then **Retry from failed step**. The case resumes at that step and closes.
+3. Turn **Worker bug** off (the fix is deployed), then click **Retry from failed step**. The case resumes at that step
+   and closes.
 
-**Say:** three layers. Short outages are absorbed by automatic retries. A long outage becomes a work item for ops,
-not a dead case. A real bug fails loudly, and after the fix the case resumes exactly where it stopped: nothing before
-it runs again, so Priya is credited once.
+This shows three layers of handling. Short outages are absorbed by automatic retries. A long outage becomes a work item
+for operations, not a dead case. A genuine bug fails visibly, and after the fix the case resumes exactly where it
+stopped: nothing before that step runs again, so Priya is credited once.
 
-**Show in Orkes:** VoltCity's case → **Timeline**. The failed `file_chargeback` attempts with their doubling gaps, the ops
+**In Orkes:** VoltCity's case → **Timeline**: the failed `file_chargeback` attempts with their doubling gaps, the ops
 task, the retry and the merchant wait. Click a failed attempt for its error and worker log.
 
 ![VoltCity's retries in the Orkes timeline](docs/images/10-orkes-retry-timeline.png)
 
-### Act 5: The parent closes last
+### Step 5: The dispute closes last
 
 **What happens:** with VoltCity resolved, the dispute closes: *Opened*, *Last case closed* and *Dispute closed* times
 in that order, $704.99 credited of $749.99. Priya's app shows one letter for the whole dispute.
 
 ![The closed dispute](docs/images/07-console-closed.png)
 
-**Say:** one call, one case per charge, and the dispute closed only after its last case.
-
-**Show in Orkes:** **Open in Orkes ↗** on the dark card: the parent is `COMPLETED`, with every case, retry and human
-decision in its history. In the console, clicking VoltCity shows the same story from the case's side:
+**In Orkes:** **Open in Orkes ↗** on the dark card: the parent is `COMPLETED`, with every case, retry and human
+decision in its history. In the console, clicking VoltCity shows the same history from the case's side:
 
 <img src="docs/images/08-console-case-history.png" alt="VoltCity's case history" width="480">
 
-### Optional: add a charge to the open dispute (2 minutes)
+### Optional: add a charge to the open dispute
 
-Best during Act 1–4, while `D-1001` is still open.
+Any time while `D-1001` is still open (steps 1 to 4):
 
 1. In the cardholder app (**Statement**), tick another charge, e.g. **Corner Bean Coffee $7.22**, and click **Dispute 1 charge**.
 2. The app sees that `D-1001` is open and asks whether to add the charge to it or open a new dispute. Click **Add to D-1001**.
@@ -484,39 +484,47 @@ Best during Act 1–4, while `D-1001` is still open.
 ![Adding a charge to the open dispute](docs/images/13-console-add-charge.png)
 
 3. `DSP-1001-4` appears under the same dispute, with its own rules, credit and chargeback. The dark card now says
-   4 charges, and Priya gets a "We added a charge to your dispute" letter.
+   4 charges, and Priya gets a "We added a charge to your dispute" letter. The dispute still closes only after its
+   last case, including the new one.
 
-**Say:** Priya spotted one more charge after she called. It joins the same dispute as its own case, and the dispute
-still closes only after its last case, including the new one.
-
-**Show in Orkes:** open the parent. The `track_cases` fork has two branches: the first three cases on the left, and
-on the right the loop that watches the dispute. That loop's `start_added_case` step started `DSP-1001-4`.
+**In Orkes:** open the parent. The `track_cases` fork has two branches: the first three cases on one side, and the loop
+that watches the dispute on the other. That loop's `start_added_case` step started `DSP-1001-4`.
 
 ![The parent starting the added case](docs/images/14-orkes-added-charge.png)
 
-### Optional: change a rule live (2 minutes)
+### Optional: change a rule live (Orkes)
 
-1. In Orkes, open **Definitions → Decision Rules → `dispute_triage_rules`**, change `>100` to `>500` in the *amount* column and **Save**.
-2. In the console's cardholder app (**Statement**), dispute a **FreshCart Grocery** charge between $100 and $500.
-   It's auto-approved as *Low-risk dispute*, where before it would have gone to an analyst.
-3. Change it back, or restart the demo (container or `start.sh`), which restores the rules from `rules/dispute_rules.csv`.
+1. In Orkes, open **Definitions → Decision Rules → `dispute_triage_rules`**, change `>100` to `>500` in the *amount*
+   column and **Save**.
+2. In the cardholder app (**Statement**), dispute a **FreshCart Grocery** charge between $100 and $500. It's
+   auto-approved as *Low-risk dispute*, where before it would have gone to an analyst.
+3. Change it back, or restart the application (container or `start.sh`), which restores the rules from
+   `rules/dispute_rules.csv`.
 
-### Customer questions
+---
+
+## 6. FAQ
 
 **Is there user task management, and can we tailor how tasks are presented?**
-- **Definitions → User Forms** has `dispute_review_form` and `chargeback_exception_form`: a drag-and-drop layout, read-only fact fields, validation, and fields that appear only when relevant (for example, the amount only for *Partial*).
+- Yes. **Definitions → User Forms** has `dispute_review_form` and `chargeback_exception_form`: a drag-and-drop layout,
+  read-only fact fields, validation, and fields that appear only when relevant (for example, the amount only for
+  *Partial*).
 - Assignment and escalation are set per task: a group, an SLA, then the next group.
 - Tasks can be worked in the Orkes **Human Tasks** inbox, or in your own UI through the API, as this console does.
+  Both paths are covered by the automated tests.
 
 **Can a cardholder add a charge to a dispute that is already open?**
-- Yes. A dynamic fork's branches are fixed once it starts, so the parent doesn't add a branch. Instead it runs a watch
-  loop next to the fork that starts a case for each added charge (`START_WORKFLOW`), and waits for those cases too.
-- Show it: open dispute `D-1001`, select another charge on the statement, **Add to D-1001**. In Orkes, the parent's
-  `start_added_case` step links to the new case, and the parent closes only after it.
+- Yes. A dynamic fork's branches are fixed once it starts, so the parent runs a second branch next to the fork that
+  starts a case for each added charge (`START_WORKFLOW`) and waits for those cases too. See
+  [Optional: add a charge](#optional-add-a-charge-to-the-open-dispute) and the parent workflow notes in
+  [section 1](#parent-workflow-dispute_intake-one-per-dispute).
 
 **Can we search on custom attributes within a workflow?**
-- In Orkes **Executions → Workflow**, search by correlation ID (`D-1001`) or free text over workflow input and output: a case ID (`DSP-1001-2`), a cardholder ID (`CH-1001`), a merchant (`VoltCity`) or a route (`HUMAN_REVIEW`). Combine with filters such as workflow type and status.
-- Be clear that Orkes has no typed, indexed custom search attributes. The pattern is a business key as the correlation ID, plus the attributes in the workflow input.
+- In Orkes **Executions → Workflow**, search by correlation ID (`D-1001`) or free text over workflow input and output:
+  a case ID (`DSP-1001-2`), a cardholder ID (`CH-1001`), a merchant (`VoltCity`) or a route (`HUMAN_REVIEW`), combined
+  with filters such as workflow type and status.
+- Orkes doesn't offer typed, indexed custom search attributes. The recommended pattern is a business key as the
+  correlation ID, with the attributes in the workflow input, where free-text search finds them.
 
 **What observability is there out of the box?**
 - A live, colour-coded execution diagram, with drill-down into sub-workflows.
@@ -525,21 +533,28 @@ on the right the loop that watches the dispute. That loop's `start_added_case` s
 - Workflow variables, search, and the **Queue Monitor** (are workers polling, and how deep is each queue?).
 - Operations from the UI or the API: retry, rerun from a task, restart, pause and terminate.
 
+**Does it run on open-source Conductor?**
+- Yes, from Conductor OSS 3.34. Set `CONDUCTOR_FLAVOR=oss`. Decision rules, user forms and the Human Tasks inbox are
+  Orkes features, so on OSS the triage table runs as an INLINE task and human steps are completed through the console.
+  See [Running on Conductor OSS](#running-on-conductor-oss).
+
 ---
 
-## 6. Stop, reset, troubleshoot
+## 7. Stop, reset, troubleshoot
 
 - **Stop:** press Ctrl+C in the terminal running the container or `start.sh`. This stops the app and all workers.
 - **Reset between runs:** click **Reset** in the console. It terminates running disputes and reseeds the bank data.
-- **Full reset:** restart the container or `start.sh`. This also deletes old executions from Orkes and restores the triage rule, unless you set `KEEP_DATA=1` or pass `--keep`.
+- **Full reset:** restart the container or `start.sh`. This also deletes old dispute executions from Conductor and restores the triage rule, unless you set `KEEP_DATA=1` or pass `--keep`.
 
 | Symptom | Fix |
 |---|---|
-| `✗ Missing: CONDUCTOR_...` | Create `.env` at the repository root from `.env.example` and fill in all three Orkes values. With a container, check that you passed `--env-file ../.env` from the `dispute_demo` folder. |
+| `✗ Missing: CONDUCTOR_...` | Create `.env` at the repository root from `.env.example`. Orkes needs the server URL, key ID and secret; Conductor OSS needs `CONDUCTOR_FLAVOR=oss` and the server URL. With a container, check that you passed `--env-file ../.env` from the `dispute_demo` folder. |
 | `✗ Orkes rejected the request (401/403)` | The key ID or secret is wrong, or the application lacks the **Worker** or **Metadata API** role. |
 | `✗ The access key can't manage decision rules` | Add the **Business Rule Manager** role to the application (**Access Control → Applications**). |
 | `✗ Orkes ... is too old` | Saved decision rules need Orkes v5.6 or later. |
 | `CONDUCTOR_SERVER_URL should end with /api` | Use `https://<cluster>/api`, not the UI address. |
+| `✗ ... set CONDUCTOR_FLAVOR=oss` or `=orkes` | The flavor in `.env` doesn't match the server: Orkes needs `orkes` and an access key, Conductor OSS needs `oss`. |
+| `✗ Cannot reach http://localhost...` from a container | Inside a container, `localhost` is the container itself. See [Running on Conductor OSS](#running-on-conductor-oss). |
 | Registration fails on the forms or `HUMAN` tasks | Human Tasks aren't enabled on the cluster. |
 | `Address already in use` / `port is already allocated` | Something else is using port 8000. Use `-p 9000:8000` with the container, or `PORT=9000 ./dispute_demo/start.sh`. |
 | "Priya's three charges are already disputed" | Click **Reset** first. |
@@ -549,9 +564,9 @@ on the right the loop that watches the dispute. That loop's `start_added_case` s
 
 ---
 
-## 7. Automated end-to-end test
+## 8. Automated tests
 
-With the demo running (container or `start.sh`), in a second terminal:
+With the application running (container or `start.sh`), in a second terminal:
 
 ```bash
 cd dispute_demo
@@ -561,12 +576,12 @@ cd dispute_demo
 The test only calls the console's web API, so it works against the container too (add `--base http://localhost:9000` for another port),
 and the same test passes on Orkes and on Conductor OSS.
 
-It drives the whole story through the web API in about 9 minutes, with 38 checks: the main dispute, retries,
+It runs the whole walkthrough through the web API in about 9 minutes, with 38 checks: the main dispute, retries,
 the question-and-answer loop, a partial approval, the parent closing last, a long outage handled by ops, a worker bug
 fixed with Retry, and a charge added to an open dispute (the parent starts its case, waits for it, and a closed dispute
-takes no more charges). Click **Reset** in the console (or restart the demo) afterwards.
+takes no more charges). Click **Reset** in the console (or restart the application) afterwards.
 
-**Orkes Task Inbox check (Orkes only).** Every analyst and ops action in the console must also work when a person claims the
+**Orkes Task Inbox check (Orkes only).** Every analyst and ops action in the console also works when a person claims the
 task in the Orkes Task Inbox instead. `scripts/inbox_test.py` does what the inbox does: it submits the whole user form (the
 read-only case facts plus the decision) through the Human Task API, without using the console. It also checks the form's rules:
 a partial approval needs an amount, and a request for information needs a question. It takes about 4 minutes:
@@ -577,7 +592,7 @@ a partial approval needs an amount, and a request for information needs a questi
 
 ---
 
-## 8. Project layout
+## 9. Project layout
 
 ```
 dispute_demo/
@@ -605,12 +620,13 @@ dispute_demo/
     ├── check_setup.py          .env, connection, version and role checks
     ├── register.py             saves the decision rule; registers definitions, forms and workflows
     ├── reset_demo.py           terminates or purges executions and reseeds data
-    └── smoke_test.py           end-to-end test
+    ├── smoke_test.py           end-to-end test (Orkes and OSS)
+    └── inbox_test.py           Orkes Task Inbox check (Orkes only)
 ```
 
 ---
 
-## 9. Design notes
+## 10. Design notes
 
 - **Why the parent checks the case system, not only the JOIN.** The fork's children are `optional`, so one failed case
   never cancels its siblings. But a failed optional child counts as "done" for the JOIN, and retrying the child later
@@ -622,7 +638,7 @@ dispute_demo/
 - **Merchant deadline.** `await_merchant_response` is a `WAIT` with a 3-minute duration (30 days in real life). A merchant
   reply completes it early through the API. If it expires, the merchant didn't respond and the cardholder wins.
 - **The outage hits one merchant.** The `outage_scope` setting is `all` or a merchant name. The console targets VoltCity,
-  so a live run shows one case in trouble while the others carry on; the smoke test uses `all`.
+  so a run shows one case in trouble while the others carry on; the smoke test uses `all`.
 - **Rules saved in Orkes.** The `BUSINESS_RULE` task uses `ruleName` (Orkes v5.6+) rather than a file URL, so there's
   nothing to host and no rule cache to wait for. `register.py` saves `rules/dispute_rules.csv` to the rule on every run.
 - **Human task API.** The Python SDK (2.0.0) has no human-task client, so `app/orkes.py` calls the `/api/human/tasks`
