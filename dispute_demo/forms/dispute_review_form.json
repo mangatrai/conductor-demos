@@ -30,7 +30,17 @@
       "question": { "type": "string", "title": "Question for the cardholder" },
       "note": { "type": "string", "title": "Analyst note (shared with cardholder)" }
     },
-    "required": ["decision"]
+    "required": ["decision"],
+    "allOf": [
+      {
+        "if": { "properties": { "decision": { "const": "PARTIAL" } }, "required": ["decision"] },
+        "then": { "required": ["approvedAmount"], "properties": { "approvedAmount": { "exclusiveMinimum": 0 } } }
+      },
+      {
+        "if": { "properties": { "decision": { "const": "REQUEST_INFO" } }, "required": ["decision"] },
+        "then": { "required": ["question"], "properties": { "question": { "minLength": 1 } } }
+      }
+    ]
   },
   "templateUI": {
     "type": "VerticalLayout",

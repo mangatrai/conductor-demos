@@ -514,9 +514,18 @@ cd dispute_demo
 The test only calls the console's web API, so it works against the container too (add `--base http://localhost:9000` for another port),
 and the same test passes on Orkes and on Conductor OSS.
 
-It drives the whole story through the web API in about 8 minutes, with 27 checks: the main dispute, retries,
+It drives the whole story through the web API in about 8 minutes, with 26 checks: the main dispute, retries,
 the question-and-answer loop, a partial approval, the parent closing last, a long outage handled by ops, and a worker bug
 fixed with Retry. Click **Reset** in the console (or restart the demo) afterwards.
+
+**Orkes Task Inbox check (Orkes only).** Every analyst and ops action in the console must also work when a person claims the
+task in the Orkes Task Inbox instead. `scripts/inbox_test.py` does what the inbox does: it submits the whole user form (the
+read-only case facts plus the decision) through the Human Task API, without using the console. It also checks the form's rules:
+a partial approval needs an amount, and a request for information needs a question. It takes about 4 minutes:
+
+```bash
+../.venv/bin/python scripts/inbox_test.py      # add --base http://localhost:9000 for another port
+```
 
 ---
 

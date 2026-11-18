@@ -216,10 +216,13 @@
                 "loopCondition": "if ($.analyst_review['decision'] == 'REQUEST_INFO') { true; } else { false; }",
                 "loopOver": [
                   {
-                    "name": "analyst_review",
-                    "taskReferenceName": "analyst_review",
-                    "type": "HUMAN",
+                    "name": "review_facts",
+                    "taskReferenceName": "review_facts",
+                    "type": "INLINE",
+                    "description": "Case facts for the analyst's form. Missing values become empty text (e.g. no cardholder answer before the first question), because the user form's fields are text and Orkes checks the submitted form against them.",
                     "inputParameters": {
+                      "evaluatorType": "graaljs",
+                      "expression": "(function () { function s(v) { return v === null || v === undefined ? '' : String(v); } return { caseId: s($.caseId), cardholderName: s($.cardholderName), merchantName: s($.merchantName), mccDescription: s($.mccDescription), reasonLabel: s($.reasonLabel), cardholderNote: s($.cardholderNote), triageReason: s($.triageReason), merchantDecision: s($.merchantDecision), merchantEvidence: s($.merchantEvidence), cardholderAnswer: s($.cardholderAnswer), amount: $.amount === null || $.amount === undefined ? 0 : Number($.amount) }; })()",
                       "caseId": "${workflow.input.caseId}",
                       "cardholderName": "${workflow.input.cardholderName}",
                       "merchantName": "${enrich_case.output.merchantName}",
@@ -230,7 +233,25 @@
                       "triageReason": "${triage_rules.output.result.reason}",
                       "merchantDecision": "${merchant_outcome.output.result.merchantDecision}",
                       "merchantEvidence": "${merchant_outcome.output.result.merchantEvidence}",
-                      "cardholderAnswer": "${await_cardholder_info.output.answer}",
+                      "cardholderAnswer": "${await_cardholder_info.output.answer}"
+                    }
+                  },
+                  {
+                    "name": "analyst_review",
+                    "taskReferenceName": "analyst_review",
+                    "type": "HUMAN",
+                    "inputParameters": {
+                      "caseId": "${review_facts.output.result.caseId}",
+                      "cardholderName": "${review_facts.output.result.cardholderName}",
+                      "merchantName": "${review_facts.output.result.merchantName}",
+                      "mccDescription": "${review_facts.output.result.mccDescription}",
+                      "amount": "${review_facts.output.result.amount}",
+                      "reasonLabel": "${review_facts.output.result.reasonLabel}",
+                      "cardholderNote": "${review_facts.output.result.cardholderNote}",
+                      "triageReason": "${review_facts.output.result.triageReason}",
+                      "merchantDecision": "${review_facts.output.result.merchantDecision}",
+                      "merchantEvidence": "${review_facts.output.result.merchantEvidence}",
+                      "cardholderAnswer": "${review_facts.output.result.cardholderAnswer}",
                       "__humanTaskDefinition": {
                         "displayName": "Review ${workflow.input.caseId}: ${enrich_case.output.merchantName}",
                         "userFormTemplate": {
