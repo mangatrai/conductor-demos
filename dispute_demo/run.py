@@ -2,7 +2,7 @@
 
     python run.py [--port 8000]      (start.sh does setup first, then runs this)
 
-Workers run in their own process group so Ctrl+C stops every child process.
+Workers run in their own process group so Ctrl+C or SIGTERM stops every child process.
 """
 
 import argparse
@@ -30,6 +30,10 @@ def main() -> None:
     if not (ROOT / "bank" / "bank.db").exists():
         from bank.seed import seed
         seed()
+
+    # uvicorn re-raises SIGTERM after shutting down; with the default handler that would kill this
+    # process before the finally below stops the workers, leaving them polling (and stealing tasks).
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
 
     workers = None
     if not args.no_workers:

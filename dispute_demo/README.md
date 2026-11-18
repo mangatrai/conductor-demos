@@ -1,6 +1,7 @@
 # Credit card disputes on Orkes Conductor
 
 A working demo of a card issuer's dispute process, built on [Orkes Conductor](https://orkes.io).
+It also runs on open-source Conductor (3.34+); see [Running on Conductor OSS](#running-on-conductor-oss).
 
 > **One call, one case per charge, the parent closes last.**
 > A cardholder disputes several charges at once. Each charge becomes its own case with its own ID, deadline,
@@ -135,6 +136,8 @@ The `triage_rules` task references it by name, and the **first matching row wins
 | Any | Any | Any | Any | AUTO_APPROVE | Low-risk dispute |
 
 An edit saved in the Orkes rule editor applies to the next case. There's no deploy and no cache delay.
+On Conductor OSS, which has no decision rules, the same CSV is turned into an INLINE task with the same logic and output
+(see [Running on Conductor OSS](#running-on-conductor-oss)).
 
 ### When things go wrong: a case never silently dies
 
@@ -176,8 +179,8 @@ sequenceDiagram
 
 | You need | Notes |
 |---|---|
-| An **Orkes Conductor** cluster, **v5.6 or later** | Orkes Cloud or Enterprise, with **Human Tasks** enabled. Tested on v5.6.2. Saved decision rules need v5.6. Open-source Conductor doesn't have the `HUMAN` and `BUSINESS_RULE` tasks. |
-| An **application access key** | In the Orkes UI: **Access Control → Applications → Create application**. Give it the **Worker**, **Metadata API** and **Business Rule Manager** roles (tested with those plus **Application Creator**). Then **Create access key** and copy the key ID and secret. Everything the demo registers is owned by this application. |
+| An **Orkes Conductor** cluster, **v5.6 or later**, *or* **Conductor OSS 3.34 or later** | Orkes: Cloud or Enterprise, with **Human Tasks** enabled. Tested on v5.6.2. Saved decision rules need v5.6. OSS: tested on 3.34.0, with a few differences (see [Running on Conductor OSS](#running-on-conductor-oss)). |
+| An **application access key** (Orkes only) | In the Orkes UI: **Access Control → Applications → Create application**. Give it the **Worker**, **Metadata API** and **Business Rule Manager** roles (tested with those plus **Application Creator**). Then **Create access key** and copy the key ID and secret. Everything the demo registers is owned by this application. |
 | **Docker or Podman**, *or* **Python 3.10+** | The container needs nothing else installed. Without a container, `start.sh` needs Python (check with `python3 --version`) and a macOS or Linux shell (on Windows, use WSL). [uv](https://docs.astral.sh/uv/) is optional; `start.sh` uses it if present because it's faster. |
 | Internet access | The console loads Tailwind and Alpine.js from public CDNs. |
 | Port 8000 free | Or choose another (see below). |
@@ -197,10 +200,20 @@ cp .env.example .env          # then edit .env
 Fill in `.env` (at the repository root). It is git-ignored and is never copied into the container image.
 
 ```bash
+CONDUCTOR_FLAVOR=orkes
 CONDUCTOR_SERVER_URL=https://<your-cluster>.orkesconductor.io/api   # must end with /api
 CONDUCTOR_AUTH_KEY=<key id>
 CONDUCTOR_AUTH_SECRET=<key secret>
 ```
+
+For Conductor OSS, there is no key:
+
+```bash
+CONDUCTOR_FLAVOR=oss
+CONDUCTOR_SERVER_URL=http://localhost:8080/api    # from a container: http://host.containers.internal:8080/api
+```
+
+`CONDUCTOR_FLAVOR` may be left out: it is then `orkes` when an access key is set, otherwise `oss`.
 
 ### Step 2, option A: run it in a container (recommended)
 
@@ -219,9 +232,11 @@ The container reads its settings from environment variables, passed with `--env-
 
 | Variable | | |
 |---|---|---|
-| `CONDUCTOR_SERVER_URL` | required | Orkes API URL, ending in `/api` |
-| `CONDUCTOR_AUTH_KEY` | required | Application access key ID |
-| `CONDUCTOR_AUTH_SECRET` | required | Application access key secret |
+| `CONDUCTOR_FLAVOR` | optional | `orkes` or `oss`. Default: `orkes` if an access key is set, otherwise `oss` |
+| `CONDUCTOR_SERVER_URL` | required | Conductor API URL, ending in `/api` |
+| `CONDUCTOR_AUTH_KEY` | Orkes | Application access key ID |
+| `CONDUCTOR_AUTH_SECRET` | Orkes | Application access key secret |
+| `CONDUCTOR_UI_URL` | optional | Where the console's "open in Conductor" links point, when that is not the server URL minus `/api` (e.g. `http://localhost:8080` when the server URL uses `host.containers.internal`) |
 | `KEEP_DATA` | optional | `1` skips the reset at startup and keeps earlier executions. Default `0` |
 | `MERCHANT_AUTO_REPLY_SECONDS` | optional | How long auto-reply merchants wait before answering. Default `20` |
 
@@ -244,8 +259,8 @@ and `./dispute_demo/start.sh --keep` to skip the reset. **Ctrl+C** stops everyth
 
 The container and `start.sh` run the same steps:
 
-1. Check `.env`, connect to Orkes, and check the version and roles. If something is wrong, it stops here and says what to fix.
-2. Save the triage decision rule, then register the task definitions, the two user forms and the two workflows. Re-running this is safe.
+1. Check `.env`, connect to Conductor, and check the version (and on Orkes, the roles). If something is wrong, it stops here and says what to fix.
+2. Save the triage decision rule, then register the task definitions, the two user forms and the two workflows. Re-running this is safe. (On OSS: no rule or forms; triage is registered as an INLINE task.)
 3. Reset the demo: terminate and delete earlier `dispute_*` executions and reseed the bank data (skipped with `KEEP_DATA=1` or `--keep`).
 4. Start the web app and the workers, and stay in the foreground.
 
@@ -261,6 +276,52 @@ Dispute workers polling. Ctrl+C to stop.
 
 **Before you present**, open two browser tabs: the console and the Orkes UI (**Executions → Workflow**).
 Share the console tab, and switch to Orkes when the script says so.
+
+### Running on Conductor OSS
+
+The same workflows, workers and console run on open-source Conductor. Tested on **Conductor OSS 3.34.0**
+(the full end-to-end test passes, see [section 7](#7-automated-end-to-end-test)).
+
+**Start Conductor OSS locally** (single container, built-in SQLite storage, UI and API on port 8080):
+
+```bash
+docker run -d --name conductor-oss -p 8080:8080 -e JAVA_OPTS="-Xmx512m" conductoross/conductor:3.34.0
+```
+
+Then set `CONDUCTOR_FLAVOR=oss` and the server URL in `.env` (see Step 1) and start the demo as usual.
+Running the demo in a container next to it:
+
+```bash
+docker run --rm -it -p 8000:8000 \
+  -e CONDUCTOR_FLAVOR=oss \
+  -e CONDUCTOR_SERVER_URL=http://host.docker.internal:8080/api \
+  -e CONDUCTOR_UI_URL=http://localhost:8080 \
+  dispute-demo
+```
+
+Notes for the container:
+
+- **Your own Conductor server:** set `CONDUCTOR_SERVER_URL` to its address, e.g. `http://conductor.mybank.internal:8080/api`.
+  `localhost` inside a container is the container itself; the startup check says so if you try it.
+- **Conductor on the same machine:** use `host.docker.internal` (Podman: `host.containers.internal`). On Linux with Docker
+  Engine, also add `--add-host=host.docker.internal:host-gateway`.
+- **UI on another port:** older OSS setups serve the UI separately (e.g. on port 5000). Set `CONDUCTOR_UI_URL` so the
+  console's links open it.
+- **Search indexing** (on by default in OSS) is used by the console's Reset and search. With indexing off, the demo still
+  runs, but Reset can't find earlier executions to stop.
+- **Memory:** on a small Podman VM (2 GB), the `JAVA_OPTS` cap keeps Conductor from being killed for running out of memory.
+
+**What is different on OSS.** Everything in the console works the same. These Orkes features are not in OSS, so the demo swaps them:
+
+| On Orkes | On OSS |
+|---|---|
+| Triage is a **decision rule** saved in Orkes (`BUSINESS_RULE` task), editable in the UI | Triage is an **INLINE** (JavaScript) task generated from `rules/dispute_rules.csv`, with the same output. To change a rule, edit the CSV and rerun `scripts/register.py` (or restart the demo) |
+| Analyst and ops steps are **Human tasks** with user forms, assignment groups and SLA escalation; they can be worked in the Orkes Task Inbox | The same `HUMAN` tasks, but OSS treats them as a plain wait: no inbox, forms, assignment or SLA. The console completes them through the standard task API (`POST /api/tasks`) |
+| Access keys and roles | No login |
+
+So in the demo script, skip the Orkes-only "show in Orkes" steps: Decision Rules (Act 2, the optional live rule
+change), the Task Inbox and user forms (Act 3). Executions, retries, the ops queue, Retry from the failed step and
+the parent closing last all show the same in the OSS UI.
 
 ---
 
@@ -450,7 +511,8 @@ cd dispute_demo
 ../.venv/bin/python scripts/smoke_test.py      # or any Python with `requests`
 ```
 
-The test only calls the console's web API, so it works against the container too (add `--base http://localhost:9000` for another port).
+The test only calls the console's web API, so it works against the container too (add `--base http://localhost:9000` for another port),
+and the same test passes on Orkes and on Conductor OSS.
 
 It drives the whole story through the web API in about 8 minutes, with 27 checks: the main dispute, retries,
 the question-and-answer loop, a partial approval, the parent closing last, a long outage handled by ops, and a worker bug

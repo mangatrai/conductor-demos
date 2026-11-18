@@ -5,10 +5,10 @@ cd /app
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
-step "Checking Orkes connection"
+step "Checking the Conductor connection"
 python scripts/check_setup.py
 
-step "Saving the triage decision rule and registering definitions, forms and workflows in Orkes"
+step "Registering triage rules, task definitions, forms and workflows"
 python scripts/register.py
 
 if [[ "${KEEP_DATA:-0}" != "1" ]]; then

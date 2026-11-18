@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One command to run the dispute demo:
-#   ./start.sh            set up, register in Orkes, reset demo data, start app + workers
+#   ./start.sh            set up, register in Conductor (Orkes or OSS), reset demo data, start app + workers
 #   ./start.sh --keep     same, but keep existing demo data and executions (no reset)
 #   PORT=9000 ./start.sh  use another port
 # Stop with Ctrl+C.
@@ -44,11 +44,11 @@ fi
 echo "  ok"
 
 # 3. Credentials and connectivity
-step "Checking Orkes connection (.env at $REPO_DIR/.env)"
+step "Checking the Conductor connection (.env at $REPO_DIR/.env)"
 "$PY" scripts/check_setup.py
 
 # 4. Task definitions, forms, workflows
-step "Saving the triage decision rule and registering definitions, forms and workflows in Orkes"
+step "Registering triage rules, task definitions, forms and workflows"
 "$PY" scripts/register.py
 
 # 5. Fresh demo data

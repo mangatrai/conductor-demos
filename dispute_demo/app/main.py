@@ -228,15 +228,13 @@ def decide(case_id: str, body: Decision):
     ht = st.get("humanTask")
     if not ht:
         raise HTTPException(409, "This case is not waiting for an analyst")
-    o = client()
-    o.claim_human_task_external(ht["taskId"], ANALYST_ID)
     # Orkes validates the output against the form's JSON schema, so omit fields that don't apply
     output = {"decision": body.decision, "note": body.note, "analyst": ANALYST_ID}
     if body.decision == "PARTIAL":
         output["approvedAmount"] = body.approvedAmount
     if body.decision == "REQUEST_INFO":
         output["question"] = body.question
-    o.complete_human_task(ht["taskId"], output)
+    client().complete_human_task(case["workflow_id"], ht["taskId"], ANALYST_ID, output)
     live.invalidate(case["workflow_id"])
     return {"ok": True}
 
@@ -256,9 +254,8 @@ def ops_action(case_id: str, body: OpsAction):
     task = st.get("opsTask")
     if not task:
         raise HTTPException(409, "This case is not waiting for ops")
-    o = client()
-    o.claim_human_task_external(task["taskId"], OPS_ID)
-    o.complete_human_task(task["taskId"], {"decision": body.decision, "note": body.note})
+    client().complete_human_task(case["workflow_id"], task["taskId"], OPS_ID,
+                                 {"decision": body.decision, "note": body.note})
     live.invalidate(case["workflow_id"])
     return {"ok": True}
 
@@ -399,4 +396,5 @@ def demo_reset():
 @app.get("/api/meta")
 def meta():
     return {"orkesUi": client().ui_base, "reasons": REASONS, "analyst": ANALYST_ID,
+            "platform": "Conductor" if client().is_oss else "Orkes",
             "now": datetime.now(timezone.utc).isoformat()}

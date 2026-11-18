@@ -69,7 +69,7 @@ async function api(method, path, body) {
 function consoleApp() {
   return {
     STEPS, money, fmtTime, MAX_ATTEMPTS,
-    reasons: {}, txns: [], data: null,
+    reasons: {}, txns: [], data: null, platform: "Orkes",
     drafts: {}, busy: {}, open: {}, flashes: {}, lastSig: {}, hover: null,
     big: false, view: "statement", toasts: [], submitting: false, resetting: false, loadError: null,
 
@@ -79,7 +79,8 @@ function consoleApp() {
         if (e.key === "+" || e.key === "=") this.setBig(true);
         if (e.key === "-") this.setBig(false);
       });
-      try { this.reasons = (await api("GET", "/api/meta")).reasons; } catch (e) { this.loadError = e.message; }
+      try { const m = await api("GET", "/api/meta"); this.reasons = m.reasons; this.platform = m.platform || "Orkes"; }
+      catch (e) { this.loadError = e.message; }
       await this.loadStatement();
       await this.poll();
       if (this.dispute) this.view = "disputes";
@@ -87,7 +88,7 @@ function consoleApp() {
     },
     setBig(v) { this.big = v; document.documentElement.classList.toggle("big", v); },
     toast(text, bad = false) { const t = { id: Math.random(), text, bad }; this.toasts.push(t); setTimeout(() => (this.toasts = this.toasts.filter((x) => x.id !== t.id)), bad ? 6000 : 3500); },
-    openOrkes(url) { if (url) window.open(url, "orkes"); else this.toast("No Orkes execution yet"); },
+    openOrkes(url) { if (url) window.open(url, "orkes"); else this.toast(`No ${this.platform} execution yet`); },
 
     // ---------- data ----------
     async loadStatement() {
@@ -269,7 +270,7 @@ function consoleApp() {
         <div class="grid h-9 w-9 place-items-center rounded-lg bg-indigo-600 text-lg font-bold text-white">D</div>
         <div>
           <div class="text-lg font-bold leading-tight">Dispute Console</div>
-          <div class="text-xs font-medium uppercase tracking-wide text-slate-500">Live on Orkes Conductor</div>
+          <div class="text-xs font-medium uppercase tracking-wide text-slate-500">Live on <span x-text="platform === 'Orkes' ? 'Orkes Conductor' : 'Conductor OSS'"></span></div>
         </div>
       </div>
       <div x-show="loadError" class="rounded-md bg-rose-50 px-3 py-1 text-sm text-rose-700 ring-1 ring-rose-200" x-text="'Can’t reach the app: ' + loadError"></div>
@@ -418,7 +419,7 @@ function consoleApp() {
                     x-text="parent?.status==='COMPLETED' ? 'Closed'
                       : (['FAILED','TERMINATED','TIMED_OUT'].includes(parent?.status) ? parent.status.charAt(0) + parent.status.slice(1).toLowerCase()
                       : (allCasesDone ? 'Closing' : `${openCount} of ${parent?.expected} cases open`))"></span>
-              <button x-show="parent?.orkesUrl" @click="openOrkes(parent?.orkesUrl)" class="text-sm font-medium text-slate-300 hover:text-white hover:underline">Open in Orkes ↗</button>
+              <button x-show="parent?.orkesUrl" @click="openOrkes(parent?.orkesUrl)" class="text-sm font-medium text-slate-300 hover:text-white hover:underline">Open in <span x-text="platform"></span> ↗</button>
             </div>
           </div>
           <div class="mt-3 flex gap-1.5">
@@ -458,7 +459,7 @@ function consoleApp() {
                 <span :class="badge(c)" x-text="c.stageLabel"></span>
                 <div class="flex items-center gap-2">
                   <template x-if="linkTag(c)"><span class="rounded-md px-2 py-0.5 text-xs font-semibold" :class="linkTag(c).cls" x-text="linkTag(c).text"></span></template>
-                  <button x-show="c.orkesUrl" @click.stop="openOrkes(c.orkesUrl)" class="text-sm font-medium text-slate-500 hover:text-slate-900 hover:underline">Orkes ↗</button>
+                  <button x-show="c.orkesUrl" @click.stop="openOrkes(c.orkesUrl)" class="text-sm font-medium text-slate-500 hover:text-slate-900 hover:underline"><span x-text="platform"></span> ↗</button>
                 </div>
               </div>
             </div>
@@ -545,7 +546,7 @@ function consoleApp() {
                     </details>
                   </div>
                 </template>
-                <div x-show="busy[c.id]" class="mt-2 text-xs text-slate-500">Completing the Human task in Orkes…</div>
+                <div x-show="busy[c.id]" class="mt-2 text-xs text-slate-500">Completing the Human task in <span x-text="platform"></span>…</div>
               </div>
             </template>
 

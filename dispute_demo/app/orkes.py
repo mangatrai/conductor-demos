@@ -1,8 +1,15 @@
-"""Thin REST client for Orkes Conductor.
+"""Thin REST client for Conductor: Orkes Conductor or Conductor OSS.
 
 The Python SDK (2.0.0) has no human-task client, so the demo talks to the REST API
-directly for everything. Credentials come from the same env vars the SDK uses:
-CONDUCTOR_SERVER_URL, CONDUCTOR_AUTH_KEY, CONDUCTOR_AUTH_SECRET.
+directly for everything. Settings come from the same env vars the SDK uses:
+CONDUCTOR_SERVER_URL, CONDUCTOR_AUTH_KEY, CONDUCTOR_AUTH_SECRET, plus:
+
+  CONDUCTOR_FLAVOR  "orkes" or "oss". If unset: orkes when an auth key is set, otherwise oss.
+  CONDUCTOR_UI_URL  optional; the UI address when it is not the server URL minus /api.
+
+On OSS there is no login, no Human Task API, no user forms and no decision rules. The demo
+keeps the same workflows and swaps only those pieces (see scripts/register.py and
+complete_human_task below).
 """
 
 from __future__ import annotations
@@ -32,6 +39,15 @@ def load_env() -> None:
 load_env()
 
 
+def flavor() -> str:
+    f = os.environ.get("CONDUCTOR_FLAVOR", "").strip().lower()
+    if not f:
+        return "orkes" if os.environ.get("CONDUCTOR_AUTH_KEY") else "oss"
+    if f not in ("orkes", "oss"):
+        raise SystemExit(f"CONDUCTOR_FLAVOR must be 'orkes' or 'oss', not '{f}'")
+    return f
+
+
 class OrkesError(RuntimeError):
     def __init__(self, status: int, path: str, body: str):
         super().__init__(f"{status} on {path}: {body[:400]}")
@@ -42,8 +58,13 @@ class OrkesError(RuntimeError):
 class Orkes:
     def __init__(self) -> None:
         self.base = os.environ["CONDUCTOR_SERVER_URL"].rstrip("/")
-        self._key = os.environ["CONDUCTOR_AUTH_KEY"]
-        self._secret = os.environ["CONDUCTOR_AUTH_SECRET"]
+        self.flavor = flavor()
+        self.is_oss = self.flavor == "oss"
+        self._key = os.environ.get("CONDUCTOR_AUTH_KEY", "")
+        self._secret = os.environ.get("CONDUCTOR_AUTH_SECRET", "")
+        if not self.is_oss and not (self._key and self._secret):
+            raise SystemExit("Orkes needs CONDUCTOR_AUTH_KEY and CONDUCTOR_AUTH_SECRET "
+                             "(or set CONDUCTOR_FLAVOR=oss for Conductor OSS)")
         self._token: str | None = None
         self._token_at = 0.0
         self._lock = threading.Lock()
@@ -70,10 +91,10 @@ class Orkes:
                 f"{self.base}{path}",
                 json=json,
                 params=params,
-                headers={"X-Authorization": self._auth()},
+                headers={} if self.is_oss else {"X-Authorization": self._auth()},
                 timeout=30,
             )
-            if r.status_code == 401 and attempt == 0:
+            if r.status_code == 401 and attempt == 0 and not self.is_oss:
                 self._token = None  # expired token, refresh once
                 continue
             break
@@ -90,6 +111,8 @@ class Orkes:
 
     @property
     def ui_base(self) -> str:
+        if os.environ.get("CONDUCTOR_UI_URL"):
+            return os.environ["CONDUCTOR_UI_URL"].rstrip("/")
         return self.base[: -len("/api")] if self.base.endswith("/api") else self.base
 
     # -- metadata ---------------------------------------------------------
@@ -148,7 +171,17 @@ class Orkes:
         return self.call("POST", f"/human/tasks/{task_id}/externalUser/{user_id}",
                          params={"overrideAssignment": "true"})
 
-    def complete_human_task(self, task_id: str, output: dict):
+    def complete_human_task(self, workflow_id: str, task_id: str, user_id: str, output: dict):
+        """Complete a HUMAN task as user_id.
+
+        Orkes: claim it, then complete it through the Human Task API, which also checks the output
+        against the task's user form. OSS: a HUMAN task is a plain wait, so complete it with the
+        standard task update (by task id, so the right DO_WHILE iteration is completed)."""
+        if self.is_oss:
+            return self.call("POST", "/tasks", json={
+                "workflowInstanceId": workflow_id, "taskId": task_id,
+                "status": "COMPLETED", "outputData": output})
+        self.claim_human_task_external(task_id, user_id)
         return self.call("POST", f"/human/tasks/{task_id}/update", json=output,
                          params={"complete": "true"})
 
