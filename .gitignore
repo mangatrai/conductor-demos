@@ -12,3 +12,7 @@ __pycache__/
 *.db
 *.db-*
 .DS_Store
+
+# Local agent instructions (machine-specific paths); not part of the public repo
+AGENTS.md
+CLAUDE.md
