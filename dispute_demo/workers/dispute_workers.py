@@ -42,53 +42,92 @@ def validate_cardholder(cardholderId: str) -> dict:
             "cardLast4": ch["card_last4"]}
 
 
+def case_input(c, caseId: str, disputeId: str, cardholderId: str, txnId: str, reasonCode: str,
+               note: str) -> dict:
+    """Input of one dispute_case workflow (same for the first charges and for charges added later)."""
+    holder = row(c, "SELECT name FROM cardholders WHERE id=?", cardholderId)
+    txn = transaction_view(c, txnId)
+    if not txn or txn["cardholder_id"] != cardholderId:
+        raise NonRetryableException(f"Transaction {txnId} not found for {cardholderId}")
+    reasonCode = reasonCode or "NOT_RECEIVED"
+    return {
+        "caseId": caseId,
+        "disputeId": disputeId,
+        "cardholderId": cardholderId,
+        "cardholderName": holder["name"] if holder else "",
+        "txnId": txnId,
+        "reasonCode": reasonCode,
+        "reasonLabel": REASONS.get(reasonCode, reasonCode),
+        "cardholderNote": note or "",
+        "merchantName": txn["merchant_name"],
+        "amount": txn["amount"],
+    }
+
+
+def case_id(disputeId: str, n: int) -> str:
+    return f"{disputeId.replace('D-', 'DSP-')}-{n}"
+
+
 @worker_task(task_definition_name="prepare_cases")
 def prepare_cases(disputeId: str, cardholderId: str, items: object) -> dict:
     """One case per disputed charge. Output feeds the dynamic fork."""
-    cases = []
     with connect() as c:
-        holder = row(c, "SELECT name FROM cardholders WHERE id=?", cardholderId)
-        for i, item in enumerate(items, start=1):
-            txn = transaction_view(c, item["txnId"])
-            if not txn or txn["cardholder_id"] != cardholderId:
-                raise NonRetryableException(f"Transaction {item['txnId']} not found for {cardholderId}")
-            cases.append({
-                "caseId": f"{disputeId.replace('D-', 'DSP-')}-{i}",
-                "disputeId": disputeId,
-                "cardholderId": cardholderId,
-                "cardholderName": holder["name"] if holder else "",
-                "txnId": item["txnId"],
-                "reasonCode": item.get("reasonCode", "NOT_RECEIVED"),
-                "reasonLabel": REASONS.get(item.get("reasonCode", ""), item.get("reasonCode", "")),
-                "cardholderNote": item.get("note", ""),
-                "merchantName": txn["merchant_name"],
-                "amount": txn["amount"],
-            })
+        cases = [case_input(c, case_id(disputeId, i), disputeId, cardholderId, item["txnId"],
+                            item.get("reasonCode", "NOT_RECEIVED"), item.get("note", ""))
+                 for i, item in enumerate(items, start=1)]
     total = round(sum(x["amount"] for x in cases), 2)
     log(f"Dispute {disputeId}: {len(cases)} charge(s), total {money(total)}")
     return {"cases": cases, "caseCount": len(cases), "totalDisputed": total}
 
 
 @worker_task(task_definition_name="collect_case_results")
-def collect_case_results(disputeId: str, expectedCount: object = 0) -> dict:
-    """Ask the case system which cases of this dispute are closed. The parent keeps waiting while any is open."""
+def collect_case_results(disputeId: str, expectedCount: object = 0, handoverToken: str = "") -> dict:
+    """Ask the case system which cases of this dispute are closed, and hand over a charge added since.
+
+    The dispute's cases are the first `expectedCount` charges plus every charge added later. While any is
+    open the parent keeps waiting. When all are closed, the dispute is marked CLOSING in the same locked
+    step, so a charge can't be added between this check and the parent closing (the app refuses it).
+
+    An added charge is handed to the parent (which starts its case) exactly once. handoverToken is the
+    parent's id + loop iteration: a retry of this same task gets the same charge back, in case the first
+    answer was lost; a later iteration never does. (Conductor OSS ignores START_WORKFLOW idempotency keys,
+    so duplicates are prevented here.)"""
     expected = int(expectedCount or 0)
-    with connect() as c:
+    with connect(immediate=True) as c:
         rows_ = db.rows(c, """SELECT cs.id, cs.amount, cs.decision, cs.approved_amount, cs.decided_by, cs.closed_at,
                                   m.name AS merchant_name
                            FROM cases cs JOIN transactions t ON t.id = cs.txn_id JOIN merchants m ON m.id = t.merchant_id
                            WHERE cs.dispute_id = ? ORDER BY cs.id""", disputeId)
-    closed = [r for r in rows_ if r["closed_at"]]
-    open_ids = [r["id"] for r in rows_ if not r["closed_at"]]
-    pending = max(len(open_ids), expected - len(closed))
+        added = db.rows(c, "SELECT * FROM added_charges WHERE dispute_id=? ORDER BY requested_at, case_id", disputeId)
+        closed = [r for r in rows_ if r["closed_at"]]
+        closed_ids = {r["id"] for r in closed}
+        all_ids = [case_id(disputeId, i) for i in range(1, expected + 1)] + [a["case_id"] for a in added]
+        all_ids += [r["id"] for r in rows_ if r["id"] not in all_ids]
+        open_ids = [i for i in all_ids if i not in closed_ids]
+        pending = len(open_ids)
+
+        new_case = None
+        mine = [a for a in added if handoverToken and a["handover_token"] == handoverToken]
+        todo = mine or [a for a in added if not a["handover_token"]]
+        if todo:
+            a = todo[0]
+            new_case = case_input(c, a["case_id"], disputeId, a["cardholder_id"], a["txn_id"],
+                                  a["reason_code"], a["note"])
+            c.execute("UPDATE added_charges SET handover_token=?, started_at=? WHERE case_id=?",
+                      (handoverToken or "-", now_iso(), a["case_id"]))
+        if not pending:
+            c.execute("UPDATE disputes SET status='CLOSING' WHERE id=?", (disputeId,))
     cases = [{"caseId": r["id"], "merchantName": r["merchant_name"], "amount": r["amount"],
               "decision": r["decision"] or "OPEN", "approvedAmount": r["approved_amount"] or 0,
               "decidedBy": r["decided_by"]} for r in rows_]
+    if new_case:
+        log(f"Dispute {disputeId}: charge added - starting case {new_case['caseId']} "
+            f"({new_case['merchantName']} {money(new_case['amount'])})")
     if pending:
-        log(f"Dispute {disputeId}: {len(closed)}/{expected} cases closed; still waiting on {', '.join(open_ids) or pending}")
+        log(f"Dispute {disputeId}: {len(closed)}/{len(all_ids)} cases closed; still waiting on {', '.join(open_ids)}")
     else:
-        log(f"Dispute {disputeId}: all {expected} cases closed")
-    return {"pending": pending, "openCases": open_ids, "caseCount": expected or len(rows_),
+        log(f"Dispute {disputeId}: all {len(all_ids)} cases closed; dispute closing")
+    return {"pending": pending, "openCases": open_ids, "caseCount": len(all_ids), "newCase": new_case,
             "totalDisputed": round(sum(r["amount"] for r in rows_), 2),
             "totalCredited": round(sum(r["approved_amount"] or 0 for r in closed), 2), "cases": cases}
 
@@ -210,6 +249,10 @@ def notify_cardholder(cardholderId: str, kind: str, disputeId: str = "", caseId:
         subject = f"We received your dispute {disputeId}"
         body = (f"We're reviewing {d.get('caseCount')} charge(s) totalling {money(float(d.get('totalDisputed', 0)))}. "
                 "Each charge gets its own case and you'll hear from us as each one is resolved.")
+    elif kind == "CHARGE_ADDED":
+        subject = f"We added a charge to your dispute {disputeId}"
+        body = (f"{d.get('merchantName', '')} {money(float(d.get('amount', 0)))} is now case {caseId}. "
+                "It gets its own investigation, and your dispute stays open until every charge is resolved.")
     elif kind == "INFO_REQUEST":
         subject = f"Action needed on case {caseId}"
         body = d.get("question") or "Please tell us more about this charge."

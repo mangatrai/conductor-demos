@@ -6,7 +6,8 @@
 Flow: network outage on -> dispute 4 charges -> outage off (retries recover) -> merchant
 replies -> analyst requests info -> cardholder answers -> partial / approve -> parent closes.
 Then: outage outlasting all retries -> ops exception queue -> ops retry / proceed; and a worker
-bug that fails a case -> parent keeps waiting -> fix + Retry from the failed step.
+bug that fails a case -> parent keeps waiting -> fix + Retry from the failed step. Last, a charge added to an
+open dispute: the parent starts its case, waits for it, and only then closes; a closed dispute takes no more.
 """
 
 import argparse
@@ -132,6 +133,52 @@ def worker_bug_scenario(s):
     s.check(summary is not None and f"${vault['amount']:,.2f} of" in summary["body"], "Summary letter counts the retried case")
 
 
+def add_charge_scenario(s):
+    ch = "CH-1004"  # a repeat disputer: the rules send every case to an analyst
+
+    def merchant_accepts_analyst_approves(case_id):
+        s.post(f"/api/merchant/cases/{case_id}/respond", {"decision": "ACCEPT"})
+        s.wait_stage(case_id, "PENDING_REVIEW", 60)
+        s.post(f"/api/cases/{case_id}/decision", {"decision": "APPROVE", "note": "Approved"})
+        return s.wait_stage(case_id, "RESOLVED", 60)
+
+    print("8. Add a charge to an open dispute -> parent starts its case and waits for it -> closes after it")
+    s.post("/api/settings", {"networkOutage": False, "workerBug": False, "merchantAutoReply": False})
+    ride, fuel, extra = first_txn(s, ch, "MetroRide"), first_txn(s, ch, "QuickFuel"), first_txn(s, ch, "FreshCart Grocery")
+    s.check(s.get(f"/api/cardholders/{ch}/open-dispute")["dispute"] is None, "No open dispute before the first one")
+    did, (ride_id,) = submit(s, ch, [ride])
+    quick = requests.post(f"{s.base}/api/disputes", timeout=30,  # at once, before the workflow has opened the case
+                          json={"cardholderId": ch, "items": [{"txnId": ride["id"], "reasonCode": "DUPLICATE"}]})
+    s.check(quick.status_code == 409, "The same charge can't be disputed twice, even before its case opens")
+    s.wait_stage(ride_id, "AWAITING_MERCHANT", 90)
+    od = s.get(f"/api/cardholders/{ch}/open-dispute")["dispute"]
+    s.check(bool(od) and od["id"] == did, f"{did} is offered as the open dispute to add to")
+    body = {"cardholderId": ch, "items": [{"txnId": fuel["id"], "reasonCode": "DUPLICATE"}]}
+    fuel_id = s.post(f"/api/disputes/{did}/charges", body)["caseIds"][0]
+    s.check(fuel_id == f"{did.replace('D-', 'DSP-')}-2", f"Added charge becomes case {fuel_id}")
+    again = requests.post(f"{s.base}/api/disputes/{did}/charges", json=body, timeout=30)
+    s.check(again.status_code == 409, "The same charge can't be added twice")
+    s.wait_stage(fuel_id, "AWAITING_MERCHANT", 60)
+    letters = [m for m in s.get(f"/api/cardholders/{ch}/messages") if m["dispute_id"] == did]
+    s.check(any(m["kind"] == "CHARGE_ADDED" and m["case_id"] == fuel_id for m in letters),
+            "Parent started the added case and told the cardholder")
+    merchant_accepts_analyst_approves(ride_id)
+    time.sleep(8)
+    s.check(parent_status(s, ch, did) == "RUNNING", "First case resolved, parent stays open for the added case")
+    c = merchant_accepts_analyst_approves(fuel_id)
+    s.check(c["live"]["decision"] == "APPROVE", "Added case went through analyst review and was approved")
+    s.check(wait_parent(s, ch, did), "Parent COMPLETED after the added case closed")
+    summary = next((m for m in s.get(f"/api/cardholders/{ch}/messages")
+                    if m["dispute_id"] == did and m["kind"] == "DISPUTE_SUMMARY"), None)
+    total = round(ride["amount"] + fuel["amount"], 2)
+    s.check(summary is not None and "All 2 charge(s)" in summary["body"] and f"${total:,.2f} of" in summary["body"],
+            f"Summary letter covers both charges (${total:,.2f})")
+    s.check(s.get(f"/api/cardholders/{ch}/open-dispute")["dispute"] is None, "No open dispute once it closed")
+    late = requests.post(f"{s.base}/api/disputes/{did}/charges", timeout=30,
+                         json={"cardholderId": ch, "items": [{"txnId": extra["id"], "reasonCode": "DUPLICATE"}]})
+    s.check(late.status_code == 409, "A closed dispute takes no more charges")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://localhost:8000")
@@ -210,6 +257,7 @@ def main():
 
     ops_exception_scenario(s)
     worker_bug_scenario(s)
+    add_charge_scenario(s)
 
     s.post("/api/settings", {"networkOutage": False, "merchantAutoReply": True, "workerBug": False})
     print(f"\n{'ALL PASSED' if not s.failures else str(s.failures) + ' FAILURE(S)'}")

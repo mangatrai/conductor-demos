@@ -1,6 +1,6 @@
 {
   "name": "dispute_intake",
-  "description": "One cardholder dispute (one call). Splits into one dispute_case per charge; closes after the last case finishes.",
+  "description": "One cardholder dispute (one call). Splits into one dispute_case per charge; charges added while it is open get their own case too. Closes after the last case finishes.",
   "version": 1,
   "schemaVersion": 2,
   "ownerEmail": "dispute-demo@example.com",
@@ -71,63 +71,117 @@
       }
     },
     {
-      "name": "case_per_charge",
-      "taskReferenceName": "case_per_charge",
-      "type": "FORK_JOIN_DYNAMIC",
-      "description": "Start one dispute_case sub-workflow per charge; each has its own lifecycle. Optional: a failed case does not cancel its siblings (it is retried by ops and the parent waits for it).",
-      "optional": true,
-      "inputParameters": {
-        "forkTaskWorkflow": "dispute_case",
-        "forkTaskWorkflowVersion": "1",
-        "forkTaskInputs": "${prepare_cases.output.cases}"
-      }
-    },
-    {
-      "name": "wait_for_all_cases",
-      "taskReferenceName": "wait_for_all_cases",
-      "type": "JOIN"
-    },
-    {
-      "name": "until_all_cases_closed",
-      "taskReferenceName": "until_all_cases_closed",
-      "type": "DO_WHILE",
-      "description": "The parent closes last. The JOIN returns when every case workflow has ended, but a case that failed and is being retried by ops is not closed yet: check the case system and keep waiting (durable timer, no resources used) until every case is closed.",
-      "inputParameters": {},
-      "loopCondition": "if ($.collect_case_results['pending'] > 0) { true; } else { false; }",
-      "loopOver": [
-        {
-          "name": "collect_case_results",
-          "taskReferenceName": "collect_case_results",
-          "type": "SIMPLE",
-          "inputParameters": {
-            "disputeId": "${workflow.input.disputeId}",
-            "expectedCount": "${prepare_cases.output.caseCount}"
-          }
-        },
-        {
-          "name": "cases_pending",
-          "taskReferenceName": "cases_pending",
-          "type": "SWITCH",
-          "evaluatorType": "graaljs",
-          "expression": "$.pending > 0 ? 'WAITING' : 'ALL_CLOSED'",
-          "inputParameters": {
-            "pending": "${collect_case_results.output.pending}"
+      "name": "track_cases",
+      "taskReferenceName": "track_cases",
+      "type": "FORK_JOIN",
+      "description": "Left: one case per charge from the original request. Right: watch the dispute until every case is closed, starting a case for each charge added while it is open.",
+      "forkTasks": [
+        [
+          {
+            "name": "case_per_charge",
+            "taskReferenceName": "case_per_charge",
+            "type": "FORK_JOIN_DYNAMIC",
+            "description": "Start one dispute_case sub-workflow per charge; each has its own lifecycle. Optional: a failed case does not cancel its siblings (it is retried by ops and the parent waits for it).",
+            "optional": true,
+            "inputParameters": {
+              "forkTaskWorkflow": "dispute_case",
+              "forkTaskWorkflowVersion": "1",
+              "forkTaskInputs": "${prepare_cases.output.cases}"
+            }
           },
-          "decisionCases": {
-            "WAITING": [
+          {
+            "name": "wait_for_all_cases",
+            "taskReferenceName": "wait_for_all_cases",
+            "type": "JOIN"
+          }
+        ],
+        [
+          {
+            "name": "until_all_cases_closed",
+            "taskReferenceName": "until_all_cases_closed",
+            "type": "DO_WHILE",
+            "description": "Runs alongside the first cases from the start. Each round: ask the case system which cases are still open and whether a charge was added; start the added charge's case, or wait (durable timer) and check again. Ends when every case, including added ones, is closed.",
+            "inputParameters": {},
+            "loopCondition": "if ($.collect_case_results['pending'] > 0) { true; } else { false; }",
+            "loopOver": [
               {
-                "name": "recheck_cases",
-                "taskReferenceName": "recheck_cases",
-                "type": "WAIT",
-                "description": "Durable timer before checking again (demo: 30 seconds; production: e.g. 1 hour).",
+                "name": "collect_case_results",
+                "taskReferenceName": "collect_case_results",
+                "type": "SIMPLE",
                 "inputParameters": {
-                  "duration": "30 seconds"
+                  "disputeId": "${workflow.input.disputeId}",
+                  "expectedCount": "${prepare_cases.output.caseCount}",
+                  "handoverToken": "${workflow.workflowId}:${until_all_cases_closed.output.iteration}"
                 }
+              },
+              {
+                "name": "cases_pending",
+                "taskReferenceName": "cases_pending",
+                "type": "SWITCH",
+                "evaluatorType": "graaljs",
+                "expression": "$.newCase ? 'NEW_CHARGE' : ($.pending > 0 ? 'WAITING' : 'ALL_CLOSED')",
+                "inputParameters": {
+                  "pending": "${collect_case_results.output.pending}",
+                  "newCase": "${collect_case_results.output.newCase}"
+                },
+                "decisionCases": {
+                  "WAITING": [
+                    {
+                      "name": "recheck_cases",
+                      "taskReferenceName": "recheck_cases",
+                      "type": "WAIT",
+                      "description": "Durable timer before checking again (demo: 30 seconds; production: e.g. 1 hour).",
+                      "inputParameters": {
+                        "duration": "30 seconds"
+                      }
+                    }
+                  ],
+                  "NEW_CHARGE": [
+                    {
+                      "name": "start_added_case",
+                      "taskReferenceName": "start_added_case",
+                      "type": "START_WORKFLOW",
+                      "description": "A charge was added to this open dispute: start its case. It runs on its own like the others, and this loop waits for it too.",
+                      "inputParameters": {
+                        "startWorkflow": {
+                          "name": "dispute_case",
+                          "version": 1,
+                          "input": "${collect_case_results.output.newCase}",
+                          "correlationId": "${workflow.input.disputeId}"
+                        }
+                      }
+                    },
+                    {
+                      "name": "notify_cardholder",
+                      "taskReferenceName": "notify_charge_added",
+                      "type": "SIMPLE",
+                      "inputParameters": {
+                        "cardholderId": "${workflow.input.cardholderId}",
+                        "kind": "CHARGE_ADDED",
+                        "disputeId": "${workflow.input.disputeId}",
+                        "caseId": "${collect_case_results.output.newCase.caseId}",
+                        "data": {
+                          "merchantName": "${collect_case_results.output.newCase.merchantName}",
+                          "amount": "${collect_case_results.output.newCase.amount}"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "defaultCase": []
               }
             ]
-          },
-          "defaultCase": []
-        }
+          }
+        ]
+      ]
+    },
+    {
+      "name": "track_cases_join",
+      "taskReferenceName": "track_cases_join",
+      "type": "JOIN",
+      "joinOn": [
+        "wait_for_all_cases",
+        "until_all_cases_closed"
       ]
     },
     {

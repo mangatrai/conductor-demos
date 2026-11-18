@@ -30,6 +30,9 @@ def main() -> None:
     if not (ROOT / "bank" / "bank.db").exists():
         from bank.seed import seed
         seed()
+    from bank import db
+    with db.connect() as c:  # adds tables/columns newer than a kept bank.db
+        db.init_schema(c)
 
     # uvicorn re-raises SIGTERM after shutting down; with the default handler that would kill this
     # process before the finally below stops the workers, leaving them polling (and stealing tasks).

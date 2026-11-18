@@ -75,22 +75,42 @@ flowchart TD
   active -- no --> stop(["TERMINATE"])
   active -- yes --> prepare["prepare_cases<br/>one case per charge"]
   prepare --> received["notify_cardholder<br/>'We received your dispute'"]
-  received --> fork[["FORK_JOIN_DYNAMIC<br/>start one dispute_case per charge"]]
+  received --> track[["FORK_JOIN track_cases<br/>two branches, side by side"]]
+  track --> fork[["FORK_JOIN_DYNAMIC<br/>one dispute_case per charge"]]
   fork --> c1["dispute_case #1"]
-  fork --> c2["dispute_case #2"]
   fork --> cn["dispute_case #N"]
-  c1 --> join["JOIN<br/>wait for every case workflow"]
-  c2 --> join
+  c1 --> join["JOIN<br/>wait for the first cases"]
   cn --> join
-  join --> collect["collect_case_results<br/>ask the case system: all closed?"]
-  collect --> anyopen{"Any case<br/>still open?"}
-  anyopen -- "yes (e.g. failed, being retried)" --> timer["WAIT 30 s<br/>durable timer"]
+  track --> collect["collect_case_results<br/>which cases are open?<br/>was a charge added?"]
+  collect --> what{"Next?"}
+  what -- "charge added" --> start["START_WORKFLOW<br/>dispute_case for it<br/>+ 'charge added' letter"]
+  start --> collect
+  what -- "cases still open" --> timer["WAIT 30 s<br/>durable timer"]
   timer --> collect
-  anyopen -- no --> summary["notify_cardholder<br/>summary letter"]
+  what -- "all closed" --> loopdone["loop ends"]
+  join --> tjoin["JOIN track_cases_join"]
+  loopdone --> tjoin
+  tjoin --> summary["notify_cardholder<br/>summary letter"]
   summary --> done(["Parent completes, last"])
 ```
 
 The dispute ID (e.g. `D-1001`) is the workflow's **correlation ID**, so you can search for it in Orkes.
+
+**Adding a charge to an open dispute.** A cardholder who spots another bad charge while a dispute is open can add it
+to that dispute. The console asks "Add to D-1001, or open a new dispute?". An added charge becomes the next case
+(`DSP-1001-4`), started by the parent itself (`start_added_case`), with the same lifecycle as the others. The dispute
+stays open until its **last** case closes, including added ones; there is no time window, so a dispute can't be kept
+open forever by adding charges after everything else is resolved. Once every case is closed, new charges go to a new
+dispute.
+
+How it stays correct:
+- The right-hand branch runs from the start, so a charge can be added while the first cases are still running.
+- The parent's check (`collect_case_results`) and the "add charge" API take the same database lock. When the check
+  finds every case closed, it marks the dispute `CLOSING` in that same step, and the API then refuses new charges. A
+  charge is never accepted and then lost.
+- Each added charge is handed to the parent once, so it gets exactly one case. Conductor OSS ignores
+  `START_WORKFLOW` idempotency keys, so this is done in the case system, not left to the server.
+- A charge belongs to one dispute only. This is recorded the moment the cardholder submits, before any case exists.
 
 ### Child workflow: `dispute_case` (one per charge)
 
@@ -375,9 +395,10 @@ deadline and lifecycle. The cases run independently; the dispute waits for all o
 Priya already has her money back as provisional credit.
 
 **Show in Orkes:** open the parent (**Open in Orkes ↗** on the dark card), click **Expand** on `case_per_charge`.
-The dynamic fork started one `dispute_case` workflow per charge, side by side.
+The dynamic fork started one `dispute_case` workflow per charge, side by side. Next to it, the parent's other branch
+watches the dispute until every case is closed.
 
-![The parent workflow's dynamic fork](docs/images/09-orkes-parent-fork.png)
+![The parent: the watch loop and the dynamic fork, side by side](docs/images/09-orkes-parent-fork.png)
 
 ### Act 2: Rules decide
 
@@ -453,6 +474,26 @@ decision in its history. In the console, clicking VoltCity shows the same story 
 
 <img src="docs/images/08-console-case-history.png" alt="VoltCity's case history" width="480">
 
+### Optional: add a charge to the open dispute (2 minutes)
+
+Best during Act 1–4, while `D-1001` is still open.
+
+1. In the cardholder app (**Statement**), tick another charge, e.g. **Corner Bean Coffee $7.22**, and click **Dispute 1 charge**.
+2. The app sees that `D-1001` is open and asks whether to add the charge to it or open a new dispute. Click **Add to D-1001**.
+
+![Adding a charge to the open dispute](docs/images/13-console-add-charge.png)
+
+3. `DSP-1001-4` appears under the same dispute, with its own rules, credit and chargeback. The dark card now says
+   4 charges, and Priya gets a "We added a charge to your dispute" letter.
+
+**Say:** Priya spotted one more charge after she called. It joins the same dispute as its own case, and the dispute
+still closes only after its last case, including the new one.
+
+**Show in Orkes:** open the parent. The `track_cases` fork has two branches: the first three cases on the left, and
+on the right the loop that watches the dispute. That loop's `start_added_case` step started `DSP-1001-4`.
+
+![The parent starting the added case](docs/images/14-orkes-added-charge.png)
+
 ### Optional: change a rule live (2 minutes)
 
 1. In Orkes, open **Definitions → Decision Rules → `dispute_triage_rules`**, change `>100` to `>500` in the *amount* column and **Save**.
@@ -466,6 +507,12 @@ decision in its history. In the console, clicking VoltCity shows the same story 
 - **Definitions → User Forms** has `dispute_review_form` and `chargeback_exception_form`: a drag-and-drop layout, read-only fact fields, validation, and fields that appear only when relevant (for example, the amount only for *Partial*).
 - Assignment and escalation are set per task: a group, an SLA, then the next group.
 - Tasks can be worked in the Orkes **Human Tasks** inbox, or in your own UI through the API, as this console does.
+
+**Can a cardholder add a charge to a dispute that is already open?**
+- Yes. A dynamic fork's branches are fixed once it starts, so the parent doesn't add a branch. Instead it runs a watch
+  loop next to the fork that starts a case for each added charge (`START_WORKFLOW`), and waits for those cases too.
+- Show it: open dispute `D-1001`, select another charge on the statement, **Add to D-1001**. In Orkes, the parent's
+  `start_added_case` step links to the new case, and the parent closes only after it.
 
 **Can we search on custom attributes within a workflow?**
 - In Orkes **Executions → Workflow**, search by correlation ID (`D-1001`) or free text over workflow input and output: a case ID (`DSP-1001-2`), a cardholder ID (`CH-1001`), a merchant (`VoltCity`) or a route (`HUMAN_REVIEW`). Combine with filters such as workflow type and status.
@@ -514,9 +561,10 @@ cd dispute_demo
 The test only calls the console's web API, so it works against the container too (add `--base http://localhost:9000` for another port),
 and the same test passes on Orkes and on Conductor OSS.
 
-It drives the whole story through the web API in about 8 minutes, with 26 checks: the main dispute, retries,
-the question-and-answer loop, a partial approval, the parent closing last, a long outage handled by ops, and a worker bug
-fixed with Retry. Click **Reset** in the console (or restart the demo) afterwards.
+It drives the whole story through the web API in about 9 minutes, with 38 checks: the main dispute, retries,
+the question-and-answer loop, a partial approval, the parent closing last, a long outage handled by ops, a worker bug
+fixed with Retry, and a charge added to an open dispute (the parent starts its case, waits for it, and a closed dispute
+takes no more charges). Click **Reset** in the console (or restart the demo) afterwards.
 
 **Orkes Task Inbox check (Orkes only).** Every analyst and ops action in the console must also work when a person claims the
 task in the Orkes Task Inbox instead. `scripts/inbox_test.py` does what the inbox does: it submits the whole user form (the
@@ -548,7 +596,7 @@ dispute_demo/
 ├── app/
 │   ├── main.py                 web app and JSON API
 │   ├── cases.py                turns an Orkes execution into a case stage, steps and timeline
-│   ├── merchant_sim.py         merchant auto-replies; ends the parent's re-check timer early
+│   ├── merchant_sim.py         merchant auto-replies; wakes the parent (case closed or charge added)
 │   ├── orkes.py                small Orkes REST client
 │   └── static/console.html     the one-screen console
 ├── bank/                       SQLite "core banking": schema and synthetic data
@@ -564,13 +612,13 @@ dispute_demo/
 
 ## 9. Design notes
 
-- **Why the parent checks the case system after the JOIN.** The fork's children are `optional`, so one failed case
+- **Why the parent checks the case system, not only the JOIN.** The fork's children are `optional`, so one failed case
   never cancels its siblings. But a failed optional child counts as "done" for the JOIN, and retrying the child later
   doesn't reopen the parent (verified on v5.5.11). Making the children required is worse: one failure fails the parent
-  and terminates every sibling. So after the JOIN, `collect_case_results` asks the case system whether every case is
-  closed, and the parent sleeps on a durable 30-second `WAIT` until it is. When every case is closed, the app's
-  background loop completes that `WAIT` early, so the parent closes within seconds rather than up to 30. Without the
-  app, the timer still closes it.
+  and terminates every sibling. So a loop running next to the fork asks the case system (`collect_case_results`) whether
+  every case is closed, and sleeps on a durable 30-second `WAIT` until it is. The same loop starts cases for charges
+  added later. When every case is closed, or a charge is added, the app's background loop completes that `WAIT` early,
+  so the parent acts within seconds rather than up to 30. Without the app, the timer still does it.
 - **Merchant deadline.** `await_merchant_response` is a `WAIT` with a 3-minute duration (30 days in real life). A merchant
   reply completes it early through the API. If it expires, the merchant didn't respond and the cardholder wins.
 - **The outage hits one merchant.** The `outage_scope` setting is `all` or a merchant name. The console targets VoltCity,

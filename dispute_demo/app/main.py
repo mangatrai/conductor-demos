@@ -97,6 +97,9 @@ def transactions(cid: str):
         open_cases = {r["txn_id"]: r for r in rows(c, """
             SELECT txn_id, id, closed_at, decision FROM cases
             WHERE cardholder_id = ? AND historical = 0""", cid)}
+        for r in rows(c, """SELECT dc.txn_id, dc.case_id FROM dispute_charges dc JOIN disputes d ON d.id = dc.dispute_id
+                            WHERE d.cardholder_id = ?""", cid):  # submitted, case not opened yet
+            open_cases.setdefault(r["txn_id"], {"id": r["case_id"], "closed_at": None, "decision": None})
         ledger = rows(c, "SELECT * FROM ledger_entries WHERE cardholder_id=? ORDER BY id", cid)
     for t in txns:
         t["outsideWindow"] = db.outside_window(t["statement_date"])
@@ -119,15 +122,89 @@ class DisputeRequest(BaseModel):
     items: list[DisputeItem] = Field(min_length=1)
 
 
+def _claim_charges(c, dispute_id: str, first_case_no: int, items) -> list[str]:
+    """Record the charges as claimed by this dispute (one dispute per charge) and return their case ids.
+    Call inside a connect(immediate=True) block, so the check and the insert can't interleave."""
+    ids = [i.txnId for i in items]
+    taken = {r["txn_id"] for r in rows(c, "SELECT txn_id FROM cases WHERE historical=0 UNION SELECT txn_id FROM dispute_charges")}
+    dup = [t for t in ids if t in taken] + [t for n, t in enumerate(ids) if t in ids[:n]]
+    if dup:
+        raise HTTPException(409, f"Already disputed: {', '.join(dict.fromkeys(dup))}")
+    case_ids = [f"{dispute_id.replace('D-', 'DSP-')}-{first_case_no + k}" for k in range(len(items))]
+    c.executemany("INSERT INTO dispute_charges(txn_id, dispute_id, case_id) VALUES(?,?,?)",
+                  [(t, dispute_id, cid) for t, cid in zip(ids, case_ids)])
+    return case_ids
+
+
+def _parent_status(d: dict) -> str | None:
+    if not d.get("workflow_id"):
+        return None
+    try:
+        return live.get_workflow_cached(d["workflow_id"])["status"]
+    except OrkesError:
+        return "UNKNOWN"
+
+
+def _open_dispute(cid: str) -> dict | None:
+    """The cardholder's dispute that can still take charges: not every case closed yet (status OPEN)
+    and its parent workflow running."""
+    with connect() as c:
+        ds = rows(c, "SELECT * FROM disputes WHERE cardholder_id=? AND status='OPEN' ORDER BY created_at DESC, id DESC", cid)
+        for d in ds:
+            d["closedCount"] = row(c, "SELECT COUNT(*) AS n FROM cases WHERE dispute_id=? AND closed_at IS NOT NULL",
+                                   d["id"])["n"]
+    return next((d for d in ds if _parent_status(d) == "RUNNING"), None)
+
+
+@app.get("/api/cardholders/{cid}/open-dispute")
+def open_dispute(cid: str):
+    """Asked before a new dispute is created: is there an open one the charges could be added to?"""
+    d = _open_dispute(cid)
+    return {"dispute": d and {"id": d["id"], "caseCount": d["item_count"], "closedCount": d["closedCount"],
+                              "createdAt": d["created_at"]}}
+
+
+@app.post("/api/disputes/{dispute_id}/charges")
+def add_charges(dispute_id: str, req: DisputeRequest):
+    """Add charges to an open dispute. Each becomes its own case, started by the dispute's parent workflow.
+
+    The check and the insert run under the database write lock, the same lock the parent takes when it
+    decides every case is closed (status CLOSING). So a charge is either part of this dispute (and the
+    parent waits for it) or refused here, never lost in between."""
+    with connect() as c:
+        d = row(c, "SELECT * FROM disputes WHERE id=?", dispute_id)
+    if not d or d["cardholder_id"] != req.cardholderId:
+        raise HTTPException(404, f"Dispute {dispute_id} not found for {req.cardholderId}")
+    if _parent_status(d) != "RUNNING":
+        raise HTTPException(409, f"Dispute {dispute_id} is closed. Open a new dispute instead.")
+    with connect(immediate=True) as c:
+        d = row(c, "SELECT * FROM disputes WHERE id=?", dispute_id)
+        if d["status"] != "OPEN":
+            raise HTTPException(409, f"Dispute {dispute_id} is closing: all its cases are resolved. "
+                                     "Open a new dispute instead.")
+        for i in req.items:
+            if not row(c, "SELECT id FROM transactions WHERE id=? AND cardholder_id=?", i.txnId, req.cardholderId):
+                raise HTTPException(404, f"Transaction {i.txnId} not found for {req.cardholderId}")
+        n = d["item_count"]
+        case_ids = _claim_charges(c, dispute_id, n + 1, req.items)
+        for case_id, i in zip(case_ids, req.items):
+            c.execute("""INSERT INTO added_charges(case_id, dispute_id, cardholder_id, txn_id, reason_code, note,
+                         requested_at) VALUES(?,?,?,?,?,?,?)""",
+                      (case_id, dispute_id, req.cardholderId, i.txnId, i.reasonCode, i.note, db.now_iso()))
+        c.execute("UPDATE disputes SET item_count=? WHERE id=?", (n + len(req.items), dispute_id))
+    try:  # start the new case now rather than at the parent's next 30 s check
+        merchant_sim.wake_parent(d["workflow_id"])
+    except OrkesError:
+        pass
+    return {"disputeId": dispute_id, "caseIds": case_ids, "workflowId": d["workflow_id"]}
+
+
 @app.post("/api/disputes")
 def create_dispute(req: DisputeRequest):
-    with connect() as c:
-        taken = {r["txn_id"] for r in rows(c, "SELECT txn_id FROM cases WHERE historical=0")}
-        dup = [i.txnId for i in req.items if i.txnId in taken]
-        if dup:
-            raise HTTPException(409, f"Already disputed: {', '.join(dup)}")
+    with connect(immediate=True) as c:
         last = row(c, "SELECT MAX(CAST(SUBSTR(id, 3) AS INTEGER)) AS n FROM disputes")
         dispute_id = f"D-{(last['n'] or 1000) + 1}"
+        _claim_charges(c, dispute_id, 1, req.items)
         c.execute("INSERT INTO disputes(id, cardholder_id, created_at, item_count) VALUES(?,?,?,?)",
                   (dispute_id, req.cardholderId, db.now_iso(), len(req.items)))
     wf_input = {"disputeId": dispute_id, "cardholderId": req.cardholderId, "channel": "web",
@@ -149,13 +226,7 @@ def cardholder_disputes(cid: str):
         cs = sorted([_with_live(x) for x in case_rows if x["dispute_id"] == d["id"]], key=lambda x: x["id"])
         for x in cs:  # cardholders don't see internal retry noise
             x["live"]["timeline"] = [e for e in x["live"].get("timeline", []) if not e.get("internal")]
-        parent_status = None
-        if d.get("workflow_id"):
-            try:
-                parent_status = live.get_workflow_cached(d["workflow_id"])["status"]
-            except OrkesError:
-                parent_status = "UNKNOWN"
-        d.update(cases=cs, workflowStatus=parent_status,
+        d.update(cases=cs, workflowStatus=_parent_status(d),
                  resolvedCount=sum(1 for x in cs if x["live"].get("stage") == "RESOLVED"),
                  orkesUrl=f"{client().ui_base}/execution/{d['workflow_id']}" if d.get("workflow_id") else None)
         out.append(d)

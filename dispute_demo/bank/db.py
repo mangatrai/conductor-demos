@@ -33,7 +33,17 @@ CREATE TABLE IF NOT EXISTS transactions (
 );
 CREATE TABLE IF NOT EXISTS disputes (
     id TEXT PRIMARY KEY, cardholder_id TEXT, workflow_id TEXT, created_at TEXT,
-    item_count INTEGER
+    item_count INTEGER, status TEXT DEFAULT 'OPEN'  -- OPEN -> CLOSING once every case is closed
+);
+-- Every charge claimed by a dispute (first charges and added ones), written when the cardholder submits,
+-- before any case exists. The primary key makes "one dispute per charge" a database rule.
+CREATE TABLE IF NOT EXISTS dispute_charges (txn_id TEXT PRIMARY KEY, dispute_id TEXT, case_id TEXT);
+-- Charges added to a dispute that is already open. The parent workflow picks each one up once
+-- (handover_token = parent id + loop iteration) and starts its case; until then it already counts
+-- as an open case.
+CREATE TABLE IF NOT EXISTS added_charges (
+    case_id TEXT PRIMARY KEY, dispute_id TEXT, cardholder_id TEXT, txn_id TEXT,
+    reason_code TEXT, note TEXT, requested_at TEXT, handover_token TEXT, started_at TEXT
 );
 CREATE TABLE IF NOT EXISTS cases (
     id TEXT PRIMARY KEY, dispute_id TEXT, cardholder_id TEXT, txn_id TEXT,
@@ -69,10 +79,14 @@ def now_iso() -> str:
 
 
 @contextmanager
-def connect():
+def connect(immediate: bool = False):
+    """immediate=True takes the write lock up front, so check-then-write steps can't interleave
+    (adding a charge vs. the parent deciding every case is closed)."""
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    if immediate:
+        conn.execute("BEGIN IMMEDIATE")
     try:
         yield conn
         conn.commit()
@@ -82,6 +96,9 @@ def connect():
 
 def init_schema(conn) -> None:
     conn.executescript(SCHEMA)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(disputes)")}
+    if "status" not in cols:  # bank.db from an older version of the demo (kept with --keep)
+        conn.execute("ALTER TABLE disputes ADD COLUMN status TEXT DEFAULT 'OPEN'")
 
 
 def rows(conn, sql: str, *args) -> list[dict]:

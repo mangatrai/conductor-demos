@@ -46,25 +46,37 @@ def respond(case: dict, decision: str, evidence: str = "", source: str = "simula
     live.invalidate(case["workflow_id"])
 
 
+def wake_parent(workflow_id: str) -> bool:
+    """End the parent's 30 s re-check timer now, so it looks at its cases at once. Returns False if the
+    parent isn't sleeping in that timer (it is mid-check, and will see the change in this round)."""
+    wf = live.get_workflow_cached(workflow_id)
+    if wf["status"] != "RUNNING":
+        return False
+    timer = next((t for t in wf.get("tasks", []) if t["taskType"] == "WAIT" and t["status"] == "IN_PROGRESS"
+                  and t["referenceTaskName"].startswith("recheck_cases")), None)
+    if not timer:
+        return False
+    client().complete_task_by_ref(workflow_id, timer["referenceTaskName"], {"nudged": True})
+    live.invalidate(workflow_id)
+    return True
+
+
 def nudge_parents() -> None:
-    """When every case of a dispute is closed but its parent is sleeping in the 30 s re-check timer
-    (only happens after a case failed and was retried), end the timer now so the parent re-checks at once.
-    Without this the timer still fires by itself; this just removes up to 30 s of dead air in a live demo."""
+    """When every case of a dispute is closed, or a charge was added and is waiting to be started, but the
+    parent is sleeping in its 30 s re-check timer, end the timer now so the parent acts at once. Without
+    this the timer still fires by itself; this just removes up to 30 s of dead air in a live demo."""
     with connect() as c:
         ready = rows(c, """
-            SELECT d.id, d.workflow_id FROM disputes d
-            WHERE d.workflow_id IS NOT NULL
-              AND (SELECT COUNT(*) FROM cases cs WHERE cs.dispute_id = d.id AND cs.closed_at IS NOT NULL) >= d.item_count""")
+            SELECT d.id, d.workflow_id,
+                   EXISTS(SELECT 1 FROM added_charges a WHERE a.dispute_id = d.id AND a.handover_token IS NULL) AS added
+            FROM disputes d
+            WHERE d.workflow_id IS NOT NULL AND d.status = 'OPEN'
+              AND ((SELECT COUNT(*) FROM cases cs WHERE cs.dispute_id = d.id AND cs.closed_at IS NOT NULL) >= d.item_count
+                   OR EXISTS(SELECT 1 FROM added_charges a WHERE a.dispute_id = d.id AND a.handover_token IS NULL))""")
     for d in ready:
-        wf = live.get_workflow_cached(d["workflow_id"])
-        if wf["status"] != "RUNNING":
-            continue
-        timer = next((t for t in wf.get("tasks", []) if t["taskType"] == "WAIT" and t["status"] == "IN_PROGRESS"
-                      and t["referenceTaskName"].startswith("recheck_cases")), None)
-        if timer:
-            client().complete_task_by_ref(d["workflow_id"], timer["referenceTaskName"], {"nudged": True})
-            live.invalidate(d["workflow_id"])
-            print(f"[merchant-sim] {d['id']}: all cases closed, parent re-checks now", flush=True)
+        if wake_parent(d["workflow_id"]):
+            why = "charge added" if d["added"] else "all cases closed"
+            print(f"[merchant-sim] {d['id']}: {why}, parent re-checks now", flush=True)
 
 
 def _auto_loop(stop: threading.Event) -> None:
