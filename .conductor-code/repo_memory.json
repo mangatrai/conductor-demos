@@ -1,0 +1,31 @@
+{
+  "conventions": {},
+  "invariants": [],
+  "lessons": [
+    {
+      "confidence": "high",
+      "invalidated": false,
+      "provenance": "",
+      "refs": [],
+      "text": "THIS HOST LACKS: Infrastructure as code (Terraform, Kubernetes, Docker): needs Terraform (`terraform version` did not work on this host). Do not try to install them; build what you can and say which checks cannot run here.",
+      "ts": 1795240997.101526
+    },
+    {
+      "confidence": "medium",
+      "invalidated": false,
+      "provenance": "",
+      "refs": [],
+      "text": "The program stopped starting when smoke-fix-r1-1 landed: ent/convo.sh missing or not executable\n\n`/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design_v2_api.py` exit 1:\nFAIL: server exited early (1): /Users/mrai/.uv/venvs/conductor/bin/python: Error while finding module specification for 'v2.server' (ModuleNotFoundError: No module named 'v2') |",
+      "ts": 1795242419.958223
+    },
+    {
+      "confidence": "medium",
+      "invalidated": false,
+      "provenance": "",
+      "refs": [],
+      "text": "The program stopped starting when smoke-fix-r1-2 landed: ent/convo.sh missing or not executable\n\n`/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design_v2_api.py` exit 1:\nFAIL: server exited early (1): /Users/mrai/.uv/venvs/conductor/bin/python: Error while finding module specification for 'v2.server' (ModuleNotFoundError: No module named 'v2') |",
+      "ts": 1795273235.2299142
+    }
+  ],
+  "moduleMap": {}
+}
