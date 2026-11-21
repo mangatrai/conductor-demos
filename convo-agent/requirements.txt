@@ -1,0 +1,7 @@
+requests
+fastapi
+uvicorn
+mcp
+pytest
+playwright
+conductor-python>=2,<3

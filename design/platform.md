@@ -53,3 +53,16 @@ convo-agent/hub/server.py  stdlib http.server, `--port` (default 8700); hub/stat
 
 ## 7. Other files
 requirements.txt: requests, fastapi, uvicorn, mcp, pytest, conductor-python>=2,<3. pytest.ini: `testpaths = common/tests v1/tests v2/tests v3/tests v4/tests v5/tests`, marker `live`, default `-m "not live"`. .gitignore: `.run/`, `.env`, `__pycache__/`. README: quick start, `./convo.sh start v2 v3`, demo script per version, troubleshooting.
+
+## 8. As built (round 2, architect)
+- Built: `convo.sh`, `common/{config,conductor,register,llm_mode,llm_worker,checks,ollama,manifests,launcher}.py`,
+  `common/tasks/convo_llm_chat.json`, `requirements.txt`, `pytest.ini`, `.env.example`, `.gitignore`. Hub and README not yet.
+- Measured on this machine's Conductor OSS: `LLM_CHAT_COMPLETE` and `GET_WORKFLOW` are **unknown task types**
+  (OSS queues them like SIMPLE tasks, they stay SCHEDULED). Step-0 probes stop after 4 s on a task stuck in
+  SCHEDULED and record it as unsupported, so `./convo.sh checks` finishes in ~10 s. Result here:
+  `llm_mode = worker`, `get_workflow.ok = false` → `prepare()` rewrites LLM tasks to `convo_llm_chat`
+  and `GET_WORKFLOW` to the optional HTTP form (Review decision 1). `switch_not_taken.value = null`.
+- `common.register.prepare(wf, mode, mock_port=None, get_workflow_ok=True)` (extra keyword; `register_version`
+  passes the Step-0 result). Placeholders are replaced inside strings too (e.g. `"{{MOCK_BASE_URL}}/clients"`).
+- `common.conductor.Conductor` also has `terminate(workflow_id)`.
+- The launcher starts Ollama detached (`start_ollama.sh`) and waits ≤ 30 s for `/api/tags`.
