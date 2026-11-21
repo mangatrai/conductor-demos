@@ -1,0 +1,243 @@
+[
+ {
+  "id": "v1-design-v1-memory",
+  "command": "python3 .cc/checks/design-v1-memory.py",
+  "covers": [
+   "v1: remembers facts from an earlier turn"
+  ]
+ },
+ {
+  "id": "v1-design-v1-fresh-start",
+  "command": "python3 .cc/checks/design-v1-fresh-start.py",
+  "covers": [
+   "v1: foreign or missing previous execution starts fresh"
+  ]
+ },
+ {
+  "id": "v1-design-v1-trim",
+  "command": "python3 .cc/checks/design-v1-trim.py",
+  "covers": [
+   "v1: 25 turns are trimmed to 20 messages"
+  ]
+ },
+ {
+  "id": "v1-design-v1-correlation",
+  "command": "python3 .cc/checks/design-v1-correlation.py",
+  "covers": [
+   "v1: correlation search lists every turn"
+  ]
+ },
+ {
+  "id": "v1-design-v1-chat-cli",
+  "command": "python3 .cc/checks/design-v1-chat-cli.py",
+  "covers": [
+   "v1: chat client prints execution and session links and resumes"
+  ]
+ },
+ {
+  "id": "v1-design-v1-provider-swap",
+  "command": "python3 .cc/checks/design-v1-provider-swap.py",
+  "covers": [
+   "v1: model override via input only"
+  ]
+ },
+ {
+  "id": "v1-design-v1-smoke",
+  "command": "bash .cc/checks/design-v1-smoke.sh",
+  "covers": [
+   "v1: smoke passes against the running stack"
+  ],
+  "smoke": true
+ },
+ {
+  "id": "v4-design-v4-tools-listed",
+  "command": "/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design-v4-tools-listed.py",
+  "covers": [
+   "v4: tools are listed"
+  ]
+ },
+ {
+  "id": "v4-design-v4-portfolio",
+  "command": "/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design-v4-portfolio.py",
+  "covers": [
+   "v4: portfolio lookup through MCP"
+  ]
+ },
+ {
+  "id": "v4-design-v4-chat-memory",
+  "command": "/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design-v4-chat-memory.py",
+  "covers": [
+   "v4: second question remembers the first"
+  ]
+ },
+ {
+  "id": "v4-design-v4-conductor-down",
+  "command": "/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design-v4-conductor-down.py",
+  "covers": [
+   "v4: Conductor down gives a tool error"
+  ]
+ },
+ {
+  "id": "v4-design-v4-launcher-smoke",
+  "command": "bash .cc/checks/design-v4-launcher-smoke.sh",
+  "covers": [
+   "v4: launcher starts v4 and smoke passes"
+  ]
+ },
+ {
+  "id": "v4-design-v4-desktop-config",
+  "command": "/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design-v4-desktop-config.py",
+  "covers": [
+   "v4: Claude Desktop config is ready to paste"
+  ]
+ },
+ {
+  "id": "v3-design-v3-check-portfolio",
+  "command": "python3 .cc/checks/design-v3-portfolio.py",
+  "covers": [
+   "v3: portfolio question answers with mock numbers",
+   "v3: history holds only user and assistant messages after a lookup",
+   "v3: get_portfolio workflow returns holdings"
+  ]
+ },
+ {
+  "id": "v3-design-v3-check-plain",
+  "command": "python3 .cc/checks/design-v3-plain.py",
+  "covers": [
+   "v3: plain question triggers no lookup"
+  ]
+ },
+ {
+  "id": "v3-design-v3-check-graceful",
+  "command": "python3 .cc/checks/design-v3-graceful.py",
+  "covers": [
+   "v3: unknown client gets a not-found reply",
+   "v3: mock API down still completes the turn"
+  ]
+ },
+ {
+  "id": "v3-design-v3-check-web",
+  "command": "python3 .cc/checks/design-v3-web.py",
+  "covers": [
+   "v3: web chat returns lookup extra and serves the card page"
+  ]
+ },
+ {
+  "id": "v2-design-v2-api",
+  "command": "/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design_v2_api.py",
+  "covers": [
+   "v2: health and config report the version",
+   "v2: chat turn returns reply with links and steps",
+   "v2: bad request is rejected with 400",
+   "v2: failed workflow maps to 502 and slow workflow to 504",
+   "v2: session endpoint returns stored history",
+   "v2: another version reuses the front door"
+  ],
+  "smoke": true
+ },
+ {
+  "id": "v2-design-v2-page",
+  "command": "/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design_v2_page.py",
+  "covers": [
+   "v2: typing state while a turn is in flight",
+   "v2: failed turn keeps the old pointer and offers Retry",
+   "v2: resume a previous chat",
+   "v2: new chat starts fresh",
+   "v2: each reply shows links and what Conductor did",
+   "v2: starter prompt and model picker"
+  ]
+ },
+ {
+  "id": "v2-design-v2-live",
+  "command": "bash .cc/checks/design_v2_live.sh",
+  "covers": [
+   "v2: smoke passes against the running stack",
+   "v2: foreign session cannot be resumed"
+  ]
+ },
+ {
+  "id": "v2-design-v2-gateway",
+  "command": "bash .cc/checks/design_v2_gateway.sh",
+  "covers": [
+   "v2: gateway setup on OSS prints the stand-in notice"
+  ],
+  "smoke": true
+ },
+ {
+  "id": "platform-design-platform-launcher-cli",
+  "command": "bash .cc/checks/design-platform-launcher-cli.sh",
+  "covers": [
+   "platform: list versions",
+   "platform: unknown version rejected",
+   "platform: status table"
+  ],
+  "smoke": true
+ },
+ {
+  "id": "platform-design-platform-units",
+  "command": "/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design-platform-units.py",
+  "covers": [
+   "platform: env precedence",
+   "platform: worker rewrite",
+   "platform: worker json output"
+  ]
+ },
+ {
+  "id": "platform-design-platform-hub",
+  "command": "/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design-platform-hub.py",
+  "covers": [
+   "platform: hub versions api",
+   "platform: hub version tour"
+  ]
+ },
+ {
+  "id": "platform-design-platform-step0",
+  "command": "bash .cc/checks/design-platform-step0.sh",
+  "covers": [
+   "platform: step-0 report"
+  ]
+ },
+ {
+  "id": "v5-design-v5-memory",
+  "command": "/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design-v5-memory.py",
+  "covers": [
+   "v5: second run remembers the first"
+  ]
+ },
+ {
+  "id": "v5-design-v5-foreign",
+  "command": "/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design-v5-foreign.py",
+  "covers": [
+   "v5: foreign previous execution starts fresh and says so"
+  ]
+ },
+ {
+  "id": "v5-design-v5-workflow",
+  "command": "/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design-v5-workflow.py",
+  "covers": [
+   "v5: workflow runs the agent"
+  ]
+ },
+ {
+  "id": "v5-design-v5-portfolio",
+  "command": "/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design-v5-portfolio.py",
+  "covers": [
+   "v5: agent looks up a portfolio"
+  ]
+ },
+ {
+  "id": "v5-design-v5-web",
+  "command": "/Users/mrai/.uv/venvs/conductor/bin/python .cc/checks/design-v5-web.py",
+  "covers": [
+   "v5: chat in the browser API remembers"
+  ]
+ },
+ {
+  "id": "v5-design-v5-launcher",
+  "command": "bash .cc/checks/design-v5-launcher.sh",
+  "covers": [
+   "v5: launcher smoke passes",
+   "v5: probe reports server features"
+  ]
+ }
+]
