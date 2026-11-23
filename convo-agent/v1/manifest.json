@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "title": "Chat with memory across executions",
+  "summary": "One chat_turn workflow per message; memory comes from the previous execution, so every turn is auditable in the Conductor UI.",
+  "features": ["Switch", "Get Workflow", "JSON JQ Transform", "LLM Chat Complete", "Correlation ID search"],
+  "processes": [],
+  "links": [
+    {"label": "Conductor UI: v1 executions", "url": "http://localhost:5000/executions?workflowType=convo_v1_chat_turn"},
+    {"label": "Terminal chat: python -m v1.chat", "url": "http://localhost:5000/workflowDef/convo_v1_chat_turn"}
+  ],
+  "smoke": ["python", "-m", "v1.smoke"]
+}

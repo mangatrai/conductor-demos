@@ -1,0 +1,42 @@
+{
+  "name": "convo_v3_get_portfolio",
+  "description": "v3: look up one client's portfolio from the mock API (HTTP task) and shape the answer. Standalone so v4 can expose it as a tool.",
+  "version": 1,
+  "schemaVersion": 2,
+  "ownerEmail": "convo-agent@example.com",
+  "inputParameters": ["clientName"],
+  "timeoutSeconds": 60,
+  "timeoutPolicy": "TIME_OUT_WF",
+  "tasks": [
+    {
+      "name": "http_portfolio",
+      "taskReferenceName": "http_ref",
+      "type": "HTTP",
+      "optional": true,
+      "retryCount": 1,
+      "inputParameters": {
+        "http_request": {
+          "uri": "{{MOCK_BASE_URL}}/portfolio?name=${workflow.input.clientName}",
+          "method": "GET",
+          "accept": "application/json",
+          "connectionTimeOut": 3000,
+          "readTimeOut": 3000
+        }
+      }
+    },
+    {
+      "name": "shape_portfolio",
+      "taskReferenceName": "shape_ref",
+      "type": "JSON_JQ_TRANSFORM",
+      "inputParameters": {
+        "resp": "${http_ref.output.response}",
+        "queryExpression": "if (.resp | type) == \"object\" and .resp.statusCode == 200 and (.resp.body | type) == \"object\" then {found: (.resp.body.found == true), portfolio: .resp.body, error: null} else {found: false, portfolio: null, error: \"portfolio service unavailable\"} end"
+      }
+    }
+  ],
+  "outputParameters": {
+    "found": "${shape_ref.output.result.found}",
+    "portfolio": "${shape_ref.output.result.portfolio}",
+    "error": "${shape_ref.output.result.error}"
+  }
+}

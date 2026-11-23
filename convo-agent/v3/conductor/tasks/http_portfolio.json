@@ -1,0 +1,13 @@
+[
+  {
+    "name": "http_portfolio",
+    "description": "v3: HTTP call to the mock portfolio API (one quick retry, then the workflow answers gracefully)",
+    "retryCount": 1,
+    "retryLogic": "FIXED",
+    "retryDelaySeconds": 1,
+    "timeoutSeconds": 5,
+    "responseTimeoutSeconds": 5,
+    "timeoutPolicy": "TIME_OUT_WF",
+    "ownerEmail": "convo-agent@example.com"
+  }
+]

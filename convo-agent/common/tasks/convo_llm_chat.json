@@ -1,0 +1,13 @@
+[
+  {
+    "name": "convo_llm_chat",
+    "description": "Fallback LLM chat worker (Ollama) used when native LLM_CHAT_COMPLETE is unavailable",
+    "retryCount": 2,
+    "retryLogic": "FIXED",
+    "retryDelaySeconds": 1,
+    "timeoutSeconds": 300,
+    "responseTimeoutSeconds": 120,
+    "timeoutPolicy": "TIME_OUT_WF",
+    "ownerEmail": "convo-agent@example.com"
+  }
+]

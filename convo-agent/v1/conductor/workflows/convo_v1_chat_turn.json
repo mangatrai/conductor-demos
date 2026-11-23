@@ -1,0 +1,85 @@
+{
+  "name": "convo_v1_chat_turn",
+  "description": "One chat turn: load the previous turn's history, ask the LLM, save the new history.",
+  "version": 1,
+  "schemaVersion": 2,
+  "ownerEmail": "convo-agent@example.com",
+  "timeoutPolicy": "TIME_OUT_WF",
+  "timeoutSeconds": 300,
+  "inputParameters": ["sessionId", "prevExecutionId", "message", "llmProvider", "model", "systemPrompt"],
+  "inputTemplate": {
+    "prevExecutionId": "",
+    "llmProvider": "{{LLM_PROVIDER}}",
+    "model": "{{LLM_MODEL}}",
+    "systemPrompt": "You are a wealth advisor assistant. Be concise."
+  },
+  "tasks": [
+    {
+      "name": "has_prev",
+      "taskReferenceName": "has_prev_ref",
+      "description": "Only load the previous execution when the caller passed its id.",
+      "type": "SWITCH",
+      "evaluatorType": "javascript",
+      "expression": "$.prev ? 'load' : 'new'",
+      "inputParameters": {"prev": "${workflow.input.prevExecutionId}"},
+      "decisionCases": {
+        "load": [
+          {
+            "name": "load_prev",
+            "taskReferenceName": "load_prev_ref",
+            "description": "Fetch the previous turn's execution; optional, so a missing id just starts fresh.",
+            "type": "GET_WORKFLOW",
+            "optional": true,
+            "inputParameters": {"workflowId": "${workflow.input.prevExecutionId}", "includeTasks": false}
+          }
+        ]
+      },
+      "defaultCase": []
+    },
+    {
+      "name": "build_history",
+      "taskReferenceName": "build_ref",
+      "description": "Reuse the previous history only if it is a COMPLETED turn of this same session.",
+      "type": "JSON_JQ_TRANSFORM",
+      "inputParameters": {
+        "prev": "${load_prev_ref.output}",
+        "sessionId": "${workflow.input.sessionId}",
+        "msg": "${workflow.input.message}",
+        "sys": "${workflow.input.systemPrompt}",
+        "queryExpression": "(.prev.response.body? // .prev.workflow? // .prev) as $p | (if ($p | type) == \"object\" and $p.status == \"COMPLETED\" and ($p.input.sessionId? // null) == .sessionId then ($p.output.history? // []) else [] end) as $h | {history: $h, restored: ($h | length > 0), messages: ([{\"role\":\"system\",\"message\":.sys}] + $h + [{\"role\":\"user\",\"message\":.msg}])}"
+      }
+    },
+    {
+      "name": "chat",
+      "taskReferenceName": "chat_ref",
+      "description": "Ask the LLM, with the system prompt, the history and the new message.",
+      "type": "LLM_CHAT_COMPLETE",
+      "inputParameters": {
+        "llmProvider": "${workflow.input.llmProvider}",
+        "model": "${workflow.input.model}",
+        "messages": "${build_ref.output.result.messages}",
+        "temperature": 0.3,
+        "maxTokens": 500
+      }
+    },
+    {
+      "name": "save_history",
+      "taskReferenceName": "save_ref",
+      "description": "Append the user message and the reply, keep the last 20 messages.",
+      "type": "JSON_JQ_TRANSFORM",
+      "inputParameters": {
+        "history": "${build_ref.output.result.history}",
+        "msg": "${workflow.input.message}",
+        "reply": "${chat_ref.output.result}",
+        "queryExpression": "((.history // []) + [{\"role\":\"user\",\"message\":.msg},{\"role\":\"assistant\",\"message\":.reply}]) | .[-20:]"
+      }
+    }
+  ],
+  "outputParameters": {
+    "reply": "${chat_ref.output.result}",
+    "history": "${save_ref.output.result}",
+    "executionId": "${workflow.workflowId}",
+    "sessionId": "${workflow.input.sessionId}",
+    "restored": "${build_ref.output.result.restored}"
+  }
+}

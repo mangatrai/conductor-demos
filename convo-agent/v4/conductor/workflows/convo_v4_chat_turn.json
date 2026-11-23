@@ -1,0 +1,147 @@
+{
+  "name": "convo_v4_chat_turn",
+  "version": 1,
+  "schemaVersion": 2,
+  "description": "v4 chat turn (snapshot of v3): load previous turn by id, route, optional portfolio lookup sub workflow, answer, save history. Exposed as the MCP tool ask_wealth_advisor.",
+  "inputParameters": [
+    "sessionId",
+    "prevExecutionId",
+    "message",
+    "llmProvider",
+    "model",
+    "systemPrompt"
+  ],
+  "tasks": [
+    {
+      "name": "load_prev",
+      "taskReferenceName": "load_prev_ref",
+      "type": "GET_WORKFLOW",
+      "optional": true,
+      "inputParameters": {
+        "workflowId": "${workflow.input.prevExecutionId}",
+        "includeTasks": false
+      }
+    },
+    {
+      "name": "ctx",
+      "taskReferenceName": "ctx_ref",
+      "type": "JSON_JQ_TRANSFORM",
+      "inputParameters": {
+        "prev": "${load_prev_ref.output}",
+        "sessionId": "${workflow.input.sessionId}",
+        "message": "${workflow.input.message}",
+        "provider": "${workflow.input.llmProvider}",
+        "model": "${workflow.input.model}",
+        "sys": "${workflow.input.systemPrompt}",
+        "queryExpression": ".sessionId as $sid | .message as $msg | (.prev | if type == \"object\" then (.response.body? // .workflow? // .) else null end) as $w | (($w | type) == \"object\" and $w.status == \"COMPLETED\" and $w.correlationId == $sid and $w.workflowName == \"convo_v4_chat_turn\" and (($w.output.history | type) == \"array\")) as $ok | (if $ok then $w.output.history else [] end) as $h | {restored: $ok, history: $h, llmProvider: (if ((.provider // \"\") | length) > 0 then .provider else \"{{LLM_PROVIDER}}\" end), model: (if ((.model // \"\") | length) > 0 then .model else \"{{LLM_MODEL}}\" end), systemPrompt: (if ((.sys // \"\") | length) > 0 then .sys else \"You are Ava, a friendly and concise wealth-advisor assistant for a demo bank. Answer in plain language in a few sentences. Remember what the user tells you about themselves in this chat and use it when asked. Only talk about a specific client's data when a LOOKUP RESULT is included below: use its exact numbers; if it says found=false, say the client was not found and list the names in its 'known' field; if it has an error, say the data is temporarily unavailable. Never invent client names or numbers. This is a demo: do not give personalised financial advice.\" end), routerInput: (($h[-4:] | map(.role + \": \" + .message) | join(\"\\n\")) + \"\\nuser: \" + $msg)}"
+      }
+    },
+    {
+      "name": "route",
+      "taskReferenceName": "route_ref",
+      "type": "LLM_CHAT_COMPLETE",
+      "inputParameters": {
+        "llmProvider": "${ctx_ref.output.result.llmProvider}",
+        "model": "${ctx_ref.output.result.model}",
+        "messages": [
+          {
+            "role": "system",
+            "message": "You route messages for a wealth-advisor chat. Reply ONLY with JSON {\"intent\": \"portfolio\" or \"chat\", \"clientName\": string or null}. Use \"portfolio\" only when the latest user message asks about a specific client's portfolio, holdings, balance or returns, and put that client's full name in clientName (resolve \"her\"/\"his\" from the earlier lines). Everything else is \"chat\". Examples: \"What is in Jane Doe's portfolio?\" -> {\"intent\":\"portfolio\",\"clientName\":\"Jane Doe\"}; \"How are Raj Patel's holdings doing?\" -> {\"intent\":\"portfolio\",\"clientName\":\"Raj Patel\"}; \"What is an ETF?\" -> {\"intent\":\"chat\",\"clientName\":null}; \"My name is Sam and I like blue.\" -> {\"intent\":\"chat\",\"clientName\":null}"
+          },
+          {
+            "role": "user",
+            "message": "${ctx_ref.output.result.routerInput}"
+          }
+        ],
+        "temperature": 0,
+        "maxTokens": 80,
+        "jsonOutput": true
+      }
+    },
+    {
+      "name": "norm",
+      "taskReferenceName": "norm_ref",
+      "type": "JSON_JQ_TRANSFORM",
+      "inputParameters": {
+        "r": "${route_ref.output.result}",
+        "queryExpression": "(.r | if type == \"string\" then (try fromjson catch {}) else . end | if type == \"object\" then . else {} end) as $o | ($o.clientName // \"\" | tostring | gsub(\"^\\\\s+|\\\\s+$\"; \"\")) as $n | if $o.intent == \"portfolio\" and ($n | length) > 0 and $n != \"null\" then {intent: \"portfolio\", clientName: $n} else {intent: \"chat\", clientName: null} end"
+      }
+    },
+    {
+      "name": "need_lookup",
+      "taskReferenceName": "need_lookup_ref",
+      "type": "SWITCH",
+      "evaluatorType": "value-param",
+      "expression": "intent",
+      "inputParameters": {
+        "intent": "${norm_ref.output.result.intent}"
+      },
+      "decisionCases": {
+        "portfolio": [
+          {
+            "name": "lookup",
+            "taskReferenceName": "lookup_ref",
+            "type": "SUB_WORKFLOW",
+            "subWorkflowParam": {
+              "name": "convo_v4_get_portfolio",
+              "version": 1
+            },
+            "inputParameters": {
+              "clientName": "${norm_ref.output.result.clientName}"
+            }
+          }
+        ]
+      },
+      "defaultCase": []
+    },
+    {
+      "name": "build",
+      "taskReferenceName": "build_ref",
+      "type": "JSON_JQ_TRANSFORM",
+      "inputParameters": {
+        "sys": "${ctx_ref.output.result.systemPrompt}",
+        "history": "${ctx_ref.output.result.history}",
+        "message": "${workflow.input.message}",
+        "lookup": "${lookup_ref.output}",
+        "queryExpression": "((.lookup | type) == \"object\" and (.lookup | has(\"found\"))) as $looked | {messages: ([{role: \"system\", message: (.sys + (if $looked then \"\\n\\nLOOKUP RESULT (use these exact numbers; say if not found/unavailable): \" + (.lookup | tojson) else \"\" end))}] + (.history // []) + [{role: \"user\", message: .message}])}"
+      }
+    },
+    {
+      "name": "chat",
+      "taskReferenceName": "chat_ref",
+      "type": "LLM_CHAT_COMPLETE",
+      "inputParameters": {
+        "llmProvider": "${ctx_ref.output.result.llmProvider}",
+        "model": "${ctx_ref.output.result.model}",
+        "messages": "${build_ref.output.result.messages}",
+        "temperature": 0.3,
+        "maxTokens": 400
+      }
+    },
+    {
+      "name": "save",
+      "taskReferenceName": "save_ref",
+      "type": "JSON_JQ_TRANSFORM",
+      "inputParameters": {
+        "history": "${ctx_ref.output.result.history}",
+        "message": "${workflow.input.message}",
+        "reply": "${chat_ref.output.result}",
+        "lookup": "${lookup_ref.output}",
+        "subWorkflowId": "${lookup_ref.output.subWorkflowId}",
+        "clientName": "${norm_ref.output.result.clientName}",
+        "queryExpression": "(.reply | if type == \"string\" then . else tojson end) as $r | {reply: $r, history: (((.history // []) + [{role: \"user\", message: .message}, {role: \"assistant\", message: $r}]) | .[-20:]), lookup: (if (.lookup | type) == \"object\" and (.lookup | has(\"found\")) then {clientName: .clientName, found: .lookup.found, error: .lookup.error, subWorkflowId: .subWorkflowId, totalValue: (.lookup.portfolio.totalValue? // null)} else null end)}"
+      }
+    }
+  ],
+  "outputParameters": {
+    "reply": "${save_ref.output.result.reply}",
+    "history": "${save_ref.output.result.history}",
+    "executionId": "${workflow.workflowId}",
+    "sessionId": "${workflow.input.sessionId}",
+    "restored": "${ctx_ref.output.result.restored}",
+    "lookup": "${save_ref.output.result.lookup}"
+  },
+  "restartable": true,
+  "timeoutPolicy": "TIME_OUT_WF",
+  "timeoutSeconds": 300
+}

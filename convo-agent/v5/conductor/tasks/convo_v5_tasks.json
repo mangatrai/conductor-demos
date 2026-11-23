@@ -1,0 +1,11 @@
+[
+  {
+    "name": "convo_v5_agent_run",
+    "description": "v5 local fallback: runs the wealth_advisor agent (python -m v5.worker)",
+    "retryCount": 0,
+    "timeoutSeconds": 300,
+    "responseTimeoutSeconds": 240,
+    "timeoutPolicy": "TIME_OUT_WF",
+    "ownerEmail": "convo-agent@example.com"
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "convo-v4-wealth-advisor-http": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:8740/mcp"]
+    }
+  }
+}

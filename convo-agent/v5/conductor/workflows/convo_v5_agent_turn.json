@@ -1,0 +1,73 @@
+{
+  "name": "convo_v5_agent_turn",
+  "version": 1,
+  "schemaVersion": 2,
+  "ownerEmail": "convo-agent@example.com",
+  "description": "v5: one chat turn run by the wealth_advisor Conductor Agent (AGENT task; v5.probe swaps in SIMPLE convo_v5_agent_run when the server has no AGENT support)",
+  "inputParameters": [
+    "sessionId",
+    "prevExecutionId",
+    "message",
+    "llmProvider",
+    "model"
+  ],
+  "tasks": [
+    {
+      "name": "load_prev",
+      "taskReferenceName": "load_prev_ref",
+      "type": "GET_WORKFLOW",
+      "optional": true,
+      "inputParameters": {
+        "workflowId": "${workflow.input.prevExecutionId}",
+        "includeTasks": false
+      }
+    },
+    {
+      "name": "build_memory",
+      "taskReferenceName": "build_ref",
+      "type": "JSON_JQ_TRANSFORM",
+      "inputParameters": {
+        "prev": "${load_prev_ref.output}",
+        "prevId": "${workflow.input.prevExecutionId}",
+        "sessionId": "${workflow.input.sessionId}",
+        "message": "${workflow.input.message}",
+        "queryExpression": "(.prev.response.body? // .prev.workflow? // .prev) as $p\n| (if ($p | type) == \"object\" then $p else {} end) as $w\n| (if (.prevId // \"\") == \"\" then \"fresh session: no previous execution id given\"\n   elif ($w.workflowId // \"\") == \"\" then \"previous execution \\(.prevId) was not found\"\n   elif $w.status != \"COMPLETED\" then \"previous execution \\(.prevId) is \\($w.status), not COMPLETED\"\n   elif ($w.correlationId // \"\") != .sessionId and ($w.input.sessionId // \"\") != .sessionId\n     then \"previous execution \\(.prevId) belongs to another session; starting fresh\"\n   else \"\" end) as $why\n| (if $why == \"\" then ($w.output.history // [] | map(select(.role == \"user\" or .role == \"assistant\")) | .[-20:]) else [] end) as $h\n| {restored: ($why == \"\"),\n   memorySource: (if $why == \"\" then \"explicit\" else \"none\" end),\n   memoryNote: (if $why == \"\" then \"history restored from execution \\(.prevId)\" else $why end),\n   history: $h,\n   prompt: ((if ($h | length) > 0 then \"Conversation so far:\\n\" + ($h | map(\"\\(.role): \\(.message)\") | join(\"\\n\")) + \"\\n\\n\" else \"\" end) + \"user: \" + .message)}"
+      }
+    },
+    {
+      "name": "convo_v5_agent_run",
+      "taskReferenceName": "agent_ref",
+      "type": "AGENT",
+      "inputParameters": {
+        "agentType": "conductor",
+        "name": "wealth_advisor",
+        "prompt": "${build_ref.output.result.prompt}",
+        "sessionId": "${workflow.input.sessionId}",
+        "message": "${workflow.input.message}",
+        "history": "${build_ref.output.result.history}"
+      }
+    },
+    {
+      "name": "save_turn",
+      "taskReferenceName": "save_ref",
+      "type": "JSON_JQ_TRANSFORM",
+      "inputParameters": {
+        "agent": "${agent_ref.output}",
+        "history": "${build_ref.output.result.history}",
+        "message": "${workflow.input.message}",
+        "queryExpression": "(.agent.reply // .agent.result // .agent.output // \"\") as $r\n| (if ($r | type) == \"string\" then $r else ($r | tostring) end) as $reply\n| {reply: $reply,\n   toolCalls: (.agent.toolCalls // []),\n   agentMode: (.agent.agentMode // \"server\"),\n   history: ((.history // []) + [{role: \"user\", message: .message}, {role: \"assistant\", message: $reply}] | .[-20:])}"
+      }
+    }
+  ],
+  "outputParameters": {
+    "reply": "${save_ref.output.result.reply}",
+    "history": "${save_ref.output.result.history}",
+    "executionId": "${workflow.workflowId}",
+    "sessionId": "${workflow.input.sessionId}",
+    "restored": "${build_ref.output.result.restored}",
+    "memorySource": "${build_ref.output.result.memorySource}",
+    "memoryNote": "${build_ref.output.result.memoryNote}",
+    "agentMode": "${save_ref.output.result.agentMode}",
+    "toolCalls": "${save_ref.output.result.toolCalls}"
+  }
+}

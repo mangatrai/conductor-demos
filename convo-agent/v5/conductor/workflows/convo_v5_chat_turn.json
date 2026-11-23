@@ -1,0 +1,44 @@
+{
+  "name": "convo_v5_chat_turn",
+  "version": 1,
+  "schemaVersion": 2,
+  "ownerEmail": "convo-agent@example.com",
+  "description": "v5: S4 chat-turn adapter so the v2 web front door serves the agent unchanged",
+  "inputParameters": [
+    "sessionId",
+    "prevExecutionId",
+    "message",
+    "llmProvider",
+    "model",
+    "systemPrompt"
+  ],
+  "tasks": [
+    {
+      "name": "agent_turn",
+      "taskReferenceName": "agent_turn_ref",
+      "type": "SUB_WORKFLOW",
+      "subWorkflowParam": {
+        "name": "convo_v5_agent_turn",
+        "version": 1
+      },
+      "inputParameters": {
+        "sessionId": "${workflow.input.sessionId}",
+        "prevExecutionId": "${workflow.input.prevExecutionId}",
+        "message": "${workflow.input.message}",
+        "llmProvider": "${workflow.input.llmProvider}",
+        "model": "${workflow.input.model}"
+      }
+    }
+  ],
+  "outputParameters": {
+    "reply": "${agent_turn_ref.output.reply}",
+    "history": "${agent_turn_ref.output.history}",
+    "executionId": "${agent_turn_ref.output.executionId}",
+    "sessionId": "${agent_turn_ref.output.sessionId}",
+    "restored": "${agent_turn_ref.output.restored}",
+    "memorySource": "${agent_turn_ref.output.memorySource}",
+    "memoryNote": "${agent_turn_ref.output.memoryNote}",
+    "agentMode": "${agent_turn_ref.output.agentMode}",
+    "toolCalls": "${agent_turn_ref.output.toolCalls}"
+  }
+}

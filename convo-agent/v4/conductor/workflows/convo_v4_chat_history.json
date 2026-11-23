@@ -1,0 +1,39 @@
+{
+  "name": "convo_v4_chat_history",
+  "version": 1,
+  "schemaVersion": 2,
+  "description": "Resume helper (S4): read a chat turn by id and return its history if it belongs to this session.",
+  "inputParameters": [
+    "executionId",
+    "sessionId"
+  ],
+  "tasks": [
+    {
+      "name": "load",
+      "taskReferenceName": "load_prev_ref",
+      "type": "GET_WORKFLOW",
+      "optional": true,
+      "inputParameters": {
+        "workflowId": "${workflow.input.executionId}",
+        "includeTasks": false
+      }
+    },
+    {
+      "name": "shape",
+      "taskReferenceName": "shape_ref",
+      "type": "JSON_JQ_TRANSFORM",
+      "inputParameters": {
+        "prev": "${load_prev_ref.output}",
+        "sessionId": "${workflow.input.sessionId}",
+        "queryExpression": ".sessionId as $sid | (.prev | if type == \"object\" then (.response.body? // .workflow? // .) else null end) as $w | (($w | type) == \"object\" and $w.status == \"COMPLETED\" and $w.correlationId == $sid and $w.workflowName == \"convo_v4_chat_turn\" and (($w.output.history | type) == \"array\")) as $ok | {found: $ok, history: (if $ok then $w.output.history else [] end)}"
+      }
+    }
+  ],
+  "outputParameters": {
+    "found": "${shape_ref.output.result.found}",
+    "history": "${shape_ref.output.result.history}",
+    "sessionId": "${workflow.input.sessionId}"
+  },
+  "timeoutPolicy": "TIME_OUT_WF",
+  "timeoutSeconds": 60
+}

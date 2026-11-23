@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wealth advisor chat</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="row">
+      <h1 id="title">Wealth advisor chat</h1>
+      <span id="version" class="badge"></span>
+      <span class="spacer"></span>
+      <label class="muted">model <select id="model"></select></label>
+      <button id="new-chat" type="button">New chat</button>
+    </div>
+    <div class="row small">
+      <span id="features"></span>
+      <span class="spacer"></span>
+      <a id="exec-link" target="_blank" hidden>execution ↗</a>
+      <a id="session-link" target="_blank" hidden>session ↗</a>
+    </div>
+  </header>
+
+  <div id="resume-banner" hidden>
+    <span>You left off here. Continue?</span>
+    <button id="resume-continue" type="button">Continue</button>
+    <button id="resume-new" type="button">No, start new</button>
+  </div>
+  <div id="toast" hidden></div>
+
+  <main>
+    <div id="starters"></div>
+    <div id="messages"></div>
+    <div id="typing" hidden>Conductor is running the workflow<span class="dots">…</span></div>
+  </main>
+
+  <form id="composer">
+    <input id="input" autocomplete="off" placeholder="Ask the wealth advisor…" maxlength="4000">
+    <button id="send" type="submit">Send</button>
+  </form>
+
+  <script src="app.js"></script>
+</body>
+</html>
