@@ -1,0 +1,58 @@
+{
+  "asOf": "2025-01-31",
+  "currency": "USD",
+  "clients": [
+    {
+      "name": "Jane Doe",
+      "riskProfile": "Moderate",
+      "advisor": "Priya Nair",
+      "totalValue": 1250000,
+      "ytdReturnPct": 6.4,
+      "holdings": [
+        {"symbol": "VTI",  "name": "Vanguard Total Stock Market ETF",   "assetClass": "US Equity",            "value": 500000, "weightPct": 40.0},
+        {"symbol": "VXUS", "name": "Vanguard Total International ETF",  "assetClass": "International Equity", "value": 250000, "weightPct": 20.0},
+        {"symbol": "BND",  "name": "Vanguard Total Bond Market ETF",    "assetClass": "Fixed Income",         "value": 312500, "weightPct": 25.0},
+        {"symbol": "VNQ",  "name": "Vanguard Real Estate ETF",          "assetClass": "Real Estate",          "value": 125000, "weightPct": 10.0},
+        {"symbol": "CASH", "name": "Money Market Fund",                 "assetClass": "Cash",                 "value": 62500,  "weightPct": 5.0}
+      ]
+    },
+    {
+      "name": "Raj Patel",
+      "riskProfile": "Aggressive",
+      "advisor": "Priya Nair",
+      "totalValue": 820000,
+      "ytdReturnPct": 9.1,
+      "holdings": [
+        {"symbol": "QQQ",  "name": "Invesco QQQ Trust",                 "assetClass": "US Equity",            "value": 492000, "weightPct": 60.0},
+        {"symbol": "VWO",  "name": "Vanguard Emerging Markets ETF",     "assetClass": "International Equity", "value": 164000, "weightPct": 20.0},
+        {"symbol": "AGG",  "name": "iShares Core US Aggregate Bond ETF","assetClass": "Fixed Income",         "value": 123000, "weightPct": 15.0},
+        {"symbol": "CASH", "name": "Money Market Fund",                 "assetClass": "Cash",                 "value": 41000,  "weightPct": 5.0}
+      ]
+    },
+    {
+      "name": "Maria Gomez",
+      "riskProfile": "Conservative",
+      "advisor": "Daniel Okafor",
+      "totalValue": 2400000,
+      "ytdReturnPct": 4.2,
+      "holdings": [
+        {"symbol": "BND",  "name": "Vanguard Total Bond Market ETF",    "assetClass": "Fixed Income",         "value": 1200000, "weightPct": 50.0},
+        {"symbol": "VTI",  "name": "Vanguard Total Stock Market ETF",   "assetClass": "US Equity",            "value": 720000,  "weightPct": 30.0},
+        {"symbol": "VNQ",  "name": "Vanguard Real Estate ETF",          "assetClass": "Real Estate",          "value": 240000,  "weightPct": 10.0},
+        {"symbol": "CASH", "name": "Money Market Fund",                 "assetClass": "Cash",                 "value": 240000,  "weightPct": 10.0}
+      ]
+    },
+    {
+      "name": "Tom Becker",
+      "riskProfile": "Moderate",
+      "advisor": "Daniel Okafor",
+      "totalValue": 430000,
+      "ytdReturnPct": -1.8,
+      "holdings": [
+        {"symbol": "SPY",  "name": "SPDR S&P 500 ETF",                  "assetClass": "US Equity",            "value": 258000, "weightPct": 60.0},
+        {"symbol": "BND",  "name": "Vanguard Total Bond Market ETF",    "assetClass": "Fixed Income",         "value": 86000,  "weightPct": 20.0},
+        {"symbol": "CASH", "name": "Money Market Fund",                 "assetClass": "Cash",                 "value": 86000,  "weightPct": 20.0}
+      ]
+    }
+  ]
+}

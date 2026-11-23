@@ -56,7 +56,12 @@ requirements.txt: requests, fastapi, uvicorn, mcp, pytest, conductor-python>=2,<
 
 ## 8. As built (round 2, architect)
 - Built: `convo.sh`, `common/{config,conductor,register,llm_mode,llm_worker,checks,ollama,manifests,launcher}.py`,
-  `common/tasks/convo_llm_chat.json`, `requirements.txt`, `pytest.ini`, `.env.example`, `.gitignore`. Hub and README not yet.
+  `common/tasks/convo_llm_chat.json`, `requirements.txt`, `pytest.ini`, `.env.example`, `.gitignore`.
+- Hub (round 3): `hub/server.py` (stdlib `ThreadingHTTPServer`, reads `common.manifests.discover()`, probes each
+  process health in parallel with a 0.5 s timeout; `running` = has processes and all healthy; CLI-only versions get
+  `cli: "python -m vN.chat"`), `GET /api/platform` = `{flavor, conductor_url, llm_mode, model, ollama_up, checks}`,
+  `hub/static/index.html` (platform strip, version cards with start/stop copy buttons, Version tour table, 5 s refresh).
+  `convo-agent/README.md`: per-version features, quick start, hub, ports, demo script per version, troubleshooting.
 - Measured on this machine's Conductor OSS: `LLM_CHAT_COMPLETE` and `GET_WORKFLOW` are **unknown task types**
   (OSS queues them like SIMPLE tasks, they stay SCHEDULED). Step-0 probes stop after 4 s on a task stuck in
   SCHEDULED and record it as unsupported, so `./convo.sh checks` finishes in ~10 s. Result here:

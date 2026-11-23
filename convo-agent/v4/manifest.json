@@ -1,0 +1,16 @@
+{
+  "version": "v4",
+  "title": "Same workflows as MCP tools",
+  "summary": "The v3 chat turn and portfolio lookup, unchanged, exposed as MCP tools for Claude Desktop or any MCP client; every tool call is a Conductor execution.",
+  "features": ["MCP server over workflows", "Sub Workflow", "HTTP task", "Switch", "correlationId sessions", "Orkes MCP Gateway"],
+  "processes": [
+    {"name": "mcp", "cmd": ["python", "-m", "v4.mcp_server", "--transport", "http", "--port", "8740"],
+     "port": 8740, "health": "/healthz"},
+    {"name": "mock", "cmd": ["python", "-m", "v4.mock_api", "--port", "8741"],
+     "port": 8741, "health": "/healthz"}
+  ],
+  "links": [{"label": "MCP endpoint", "url": "http://localhost:8740/mcp"},
+            {"label": "Mock portfolio API", "url": "http://localhost:8741/clients"}],
+  "mock_base_url_port": 8741,
+  "smoke": ["python", "-m", "v4.smoke"]
+}

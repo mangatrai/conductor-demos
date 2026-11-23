@@ -1,0 +1,44 @@
+{
+  "name": "convo_v4_get_portfolio",
+  "version": 1,
+  "schemaVersion": 2,
+  "description": "Look up a client's portfolio from the mock API with an HTTP task. Used as a sub workflow by convo_v4_chat_turn and exposed as the MCP tool get_portfolio.",
+  "inputParameters": [
+    "clientName"
+  ],
+  "tasks": [
+    {
+      "name": "http",
+      "taskReferenceName": "http_ref",
+      "type": "HTTP",
+      "optional": true,
+      "inputParameters": {
+        "http_request": {
+          "uri": "{{MOCK_BASE_URL}}/portfolio?name=${workflow.input.clientName}",
+          "method": "GET",
+          "accept": "application/json",
+          "connectionTimeOut": 3000,
+          "readTimeOut": 3000
+        }
+      }
+    },
+    {
+      "name": "shape",
+      "taskReferenceName": "shape_ref",
+      "type": "JSON_JQ_TRANSFORM",
+      "inputParameters": {
+        "resp": "${http_ref.output.response}",
+        "queryExpression": "(.resp | if type == \"object\" then . else {} end) as $r | if $r.statusCode == 200 and ($r.body | type) == \"object\" then {found: ($r.body.found == true), portfolio: (if $r.body.found == true then $r.body else null end), known: ($r.body.known // null), error: null} elif $r.statusCode == 404 then {found: false, portfolio: null, known: null, error: null} else {found: false, portfolio: null, known: null, error: \"portfolio service unavailable\"} end"
+      }
+    }
+  ],
+  "outputParameters": {
+    "clientName": "${workflow.input.clientName}",
+    "found": "${shape_ref.output.result.found}",
+    "portfolio": "${shape_ref.output.result.portfolio}",
+    "known": "${shape_ref.output.result.known}",
+    "error": "${shape_ref.output.result.error}"
+  },
+  "timeoutPolicy": "TIME_OUT_WF",
+  "timeoutSeconds": 60
+}

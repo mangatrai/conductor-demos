@@ -1,0 +1,62 @@
+{
+  "name": "convo_v2_chat_history",
+  "description": "v2: read the history stored in a finished chat turn so the page can resume (only for the same session).",
+  "version": 1,
+  "schemaVersion": 2,
+  "ownerEmail": "convo-agent@example.com",
+  "inputParameters": [
+    "executionId",
+    "sessionId"
+  ],
+  "inputTemplate": {
+    "executionId": ""
+  },
+  "tasks": [
+    {
+      "name": "has_id",
+      "taskReferenceName": "has_id_ref",
+      "description": "Was an execution id given?",
+      "type": "SWITCH",
+      "evaluatorType": "javascript",
+      "expression": "$.id ? 'load' : 'none'",
+      "inputParameters": {
+        "id": "${workflow.input.executionId}"
+      },
+      "decisionCases": {
+        "load": [
+          {
+            "name": "load_turn",
+            "taskReferenceName": "load_ref",
+            "description": "Get Workflow: fetch that chat turn. Optional: a missing id just means found=false.",
+            "type": "GET_WORKFLOW",
+            "optional": true,
+            "inputParameters": {
+              "workflowId": "${workflow.input.executionId}",
+              "includeTasks": false
+            }
+          }
+        ]
+      },
+      "defaultCase": []
+    },
+    {
+      "name": "answer",
+      "taskReferenceName": "answer_ref",
+      "description": "Return the history only if the turn completed and belongs to this session.",
+      "type": "JSON_JQ_TRANSFORM",
+      "inputParameters": {
+        "prev": "${load_ref.output}",
+        "sessionId": "${workflow.input.sessionId}",
+        "queryExpression": "(.prev.response.body? // .prev.workflow? // .prev) as $p | ((($p | type) == \"object\") and ($p | .status) == \"COMPLETED\" and ($p | .input.sessionId) == .sessionId) as $ok | (if $ok then (($p | .output.history) // []) else [] end) as $h | {found: $ok, history: $h, sessionId: .sessionId}"
+      }
+    }
+  ],
+  "outputParameters": {
+    "found": "${answer_ref.output.result.found}",
+    "history": "${answer_ref.output.result.history}",
+    "sessionId": "${workflow.input.sessionId}"
+  },
+  "restartable": true,
+  "timeoutPolicy": "TIME_OUT_WF",
+  "timeoutSeconds": 60
+}

@@ -1,0 +1,13 @@
+{
+  "name": "wealth-advisor",
+  "description": "Wealth advisor chat: each route runs one Conductor workflow synchronously.",
+  "auth": {"type": "API_KEY"},
+  "cors": {"allowedOrigins": ["http://localhost:8720"], "allowedMethods": ["GET", "POST", "OPTIONS"]},
+  "concurrencyLimit": 5,
+  "routes": [
+    {"method": "POST", "path": "/chat", "workflowName": "convo_v2_chat_turn", "workflowVersion": 1,
+     "executionMode": "SYNC", "waitForSeconds": 30, "correlationIdFrom": "body.sessionId"},
+    {"method": "GET", "path": "/session", "workflowName": "convo_v2_chat_history", "workflowVersion": 1,
+     "executionMode": "SYNC", "waitForSeconds": 30, "inputFrom": "query"}
+  ]
+}

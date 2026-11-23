@@ -1,0 +1,14 @@
+{
+  "version": "v5",
+  "title": "Advisor as a Conductor Agent",
+  "summary": "The same bot as ~30 lines of Python with the Conductor Agents SDK, called from a workflow with an AGENT task (or a reported local fallback worker).",
+  "features": ["Agents SDK (Agent, @tool)", "AGENT task", "SIMPLE worker fallback", "Get Workflow memory", "JSON JQ Transform", "Sub Workflow"],
+  "processes": [
+    {"name": "web", "cmd": ["python", "-m", "v2.server", "--version", "v5", "--port", "8750", "--title", "Advisor as a Conductor Agent"],
+     "port": 8750, "health": "/healthz"},
+    {"name": "worker", "cmd": ["python", "-m", "v5.worker", "--port", "8751"],
+     "port": 8751, "health": "/healthz"}
+  ],
+  "links": [{"label": "Chat", "url": "http://localhost:8750/"}],
+  "smoke": ["python", "-m", "v5.smoke"]
+}

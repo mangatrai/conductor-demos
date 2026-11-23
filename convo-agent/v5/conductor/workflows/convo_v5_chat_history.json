@@ -1,0 +1,38 @@
+{
+  "name": "convo_v5_chat_history",
+  "version": 1,
+  "schemaVersion": 2,
+  "ownerEmail": "convo-agent@example.com",
+  "description": "v5: S4 history companion (resume a session in the web page)",
+  "inputParameters": [
+    "executionId",
+    "sessionId"
+  ],
+  "tasks": [
+    {
+      "name": "load_prev",
+      "taskReferenceName": "load_prev_ref",
+      "type": "GET_WORKFLOW",
+      "optional": true,
+      "inputParameters": {
+        "workflowId": "${workflow.input.executionId}",
+        "includeTasks": false
+      }
+    },
+    {
+      "name": "read_history",
+      "taskReferenceName": "history_ref",
+      "type": "JSON_JQ_TRANSFORM",
+      "inputParameters": {
+        "prev": "${load_prev_ref.output}",
+        "sessionId": "${workflow.input.sessionId}",
+        "queryExpression": "(.prev.response.body? // .prev.workflow? // .prev) as $p\n| (if ($p | type) == \"object\" then $p else {} end) as $w\n| ((($w.workflowId // \"\") != \"\") and $w.status == \"COMPLETED\"\n   and ((($w.correlationId // \"\") == .sessionId) or (($w.input.sessionId // \"\") == .sessionId))) as $ok\n| {found: $ok, sessionId: .sessionId, history: (if $ok then ($w.output.history // []) else [] end)}"
+      }
+    }
+  ],
+  "outputParameters": {
+    "found": "${history_ref.output.result.found}",
+    "history": "${history_ref.output.result.history}",
+    "sessionId": "${workflow.input.sessionId}"
+  }
+}

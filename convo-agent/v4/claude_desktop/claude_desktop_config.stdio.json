@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "convo-v4-wealth-advisor": {
+      "command": "/Users/YOU/.uv/venvs/conductor/bin/python",
+      "args": ["-m", "v4.mcp_server", "--transport", "stdio"],
+      "env": {
+        "PYTHONPATH": "/ABSOLUTE/PATH/TO/convo-agent",
+        "CONDUCTOR_SERVER_URL": "http://localhost:8080/api"
+      }
+    }
+  }
+}

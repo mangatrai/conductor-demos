@@ -1,0 +1,37 @@
+{
+  "name": "convo-v4-wealth-advisor",
+  "description": "Wealth-advisor demo: the v4 chat turn and portfolio lookup workflows exposed as MCP tools by the Orkes MCP Gateway.",
+  "auth": {"type": "API_KEY", "header": "X-Authorization"},
+  "tools": [
+    {
+      "name": "ask_wealth_advisor",
+      "description": "Ask the wealth-advisor assistant a question. Pass sessionId and prevExecutionId from the previous answer to continue the chat.",
+      "workflowName": "convo_v4_chat_turn",
+      "workflowVersion": 1,
+      "executionMode": "SYNC",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string", "description": "The user's message"},
+          "sessionId": {"type": "string", "description": "Chat id (any UUID); reuse it for every turn of one chat"},
+          "prevExecutionId": {"type": "string", "description": "executionId returned by the previous turn, empty on turn 1"},
+          "llmProvider": {"type": "string", "description": "Optional: LLM integration name"},
+          "model": {"type": "string", "description": "Optional: model name"}
+        },
+        "required": ["message", "sessionId"]
+      }
+    },
+    {
+      "name": "get_portfolio",
+      "description": "Look up a client's portfolio (holdings, total value, YTD return) by full name, e.g. 'Jane Doe'.",
+      "workflowName": "convo_v4_get_portfolio",
+      "workflowVersion": 1,
+      "executionMode": "SYNC",
+      "inputSchema": {
+        "type": "object",
+        "properties": {"clientName": {"type": "string", "description": "Client full name"}},
+        "required": ["clientName"]
+      }
+    }
+  ]
+}

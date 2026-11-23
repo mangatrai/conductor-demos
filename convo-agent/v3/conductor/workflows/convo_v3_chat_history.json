@@ -1,0 +1,55 @@
+{
+  "name": "convo_v3_chat_history",
+  "description": "v3: return the history saved by a previous chat turn (used by the web page to resume a session).",
+  "version": 1,
+  "schemaVersion": 2,
+  "ownerEmail": "convo-agent@example.com",
+  "inputParameters": [
+    "executionId",
+    "sessionId"
+  ],
+  "timeoutSeconds": 60,
+  "timeoutPolicy": "TIME_OUT_WF",
+  "tasks": [
+    {
+      "name": "has_prev",
+      "taskReferenceName": "has_prev_ref",
+      "type": "SWITCH",
+      "evaluatorType": "javascript",
+      "expression": "$.hasPrev ? 'load' : 'none'",
+      "inputParameters": {
+        "hasPrev": "${workflow.input.executionId}"
+      },
+      "decisionCases": {
+        "load": [
+          {
+            "name": "load_prev",
+            "taskReferenceName": "load_prev_ref",
+            "type": "GET_WORKFLOW",
+            "optional": true,
+            "inputParameters": {
+              "workflowId": "${workflow.input.executionId}",
+              "includeTasks": false
+            }
+          }
+        ]
+      },
+      "defaultCase": []
+    },
+    {
+      "name": "read_history",
+      "taskReferenceName": "read_ref",
+      "type": "JSON_JQ_TRANSFORM",
+      "inputParameters": {
+        "prev": "${load_prev_ref.output}",
+        "sid": "${workflow.input.sessionId}",
+        "queryExpression": "(.prev | if type == \"object\" then (.response.body? // .workflow? // .) else null end) as $p | (($p | type) == \"object\" and $p.status == \"COMPLETED\" and $p.correlationId == .sid and ($p.output.history? | type) == \"array\") as $ok | {found: $ok, history: (if $ok then $p.output.history else [] end), sessionId: .sid}"
+      }
+    }
+  ],
+  "outputParameters": {
+    "found": "${read_ref.output.result.found}",
+    "history": "${read_ref.output.result.history}",
+    "sessionId": "${workflow.input.sessionId}"
+  }
+}

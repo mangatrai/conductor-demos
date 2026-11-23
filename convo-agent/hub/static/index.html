@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Convo agent on Conductor: versions hub</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #1d2330; }
+  header { background: #1d2330; color: #fff; padding: 14px 24px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; color: #b8c0d0; font-size: 14px; }
+  #platform { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 10px 24px; background: #e9ecf2; font-size: 13px; }
+  #platform b { font-weight: 600; }
+  .bad { color: #c62828; font-weight: 600; }
+  .ok { color: #2e7d32; }
+  main { padding: 18px 24px; max-width: 1200px; }
+  #cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+  .card { background: #fff; border: 1px solid #dde1e8; border-radius: 8px; padding: 14px; }
+  .card h2 { margin: 0 0 6px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #b0b6c2; display: inline-block; }
+  .dot.up { background: #2e7d32; }
+  .dot.part { background: #f9a825; }
+  .card p { margin: 6px 0; font-size: 14px; color: #3c4456; }
+  .chip { display: inline-block; background: #eef1fb; color: #2b3a8c; border-radius: 10px; padding: 2px 8px; margin: 2px 4px 2px 0; font-size: 12px; }
+  .procs { font-size: 12px; color: #5a6272; }
+  .links a { display: inline-block; margin-right: 10px; font-size: 13px; }
+  .cmd { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+  .cmd code { flex: 1; background: #f1f3f6; padding: 4px 6px; border-radius: 4px; font-size: 12px; }
+  button { font-size: 12px; cursor: pointer; }
+  table { border-collapse: collapse; background: #fff; margin-top: 8px; font-size: 13px; }
+  th, td { border: 1px solid #dde1e8; padding: 5px 10px; text-align: center; }
+  th:first-child, td:first-child { text-align: left; }
+  td.new { background: #e3f2e5; font-weight: 700; color: #2e7d32; }
+  td.has { color: #5a6272; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Conversational agent on Conductor</h1>
+  <p>Every version stays runnable. Start any of them with <code>./convo.sh start vN</code>; this page only shows status.</p>
+</header>
+<div id="platform">loading platform…</div>
+<main>
+  <div id="cards"></div>
+  <h2>Version tour</h2>
+  <p>Which Conductor feature each version adds. <b>new</b> = the version that first introduces the feature.</p>
+  <div id="tour"></div>
+</main>
+<script>
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+}
+
+function copy(text, btn) {
+  navigator.clipboard.writeText(text).then(() => { btn.textContent = "copied"; setTimeout(() => btn.textContent = "copy", 1200); });
+}
+
+function cmdRow(text) {
+  return '<div class="cmd"><code>' + esc(text) + '</code><button data-copy="' + esc(text) + '">copy</button></div>';
+}
+
+function renderPlatform(p) {
+  const parts = [
+    "<span>Conductor: <b>" + esc(p.flavor) + "</b> " + esc(p.conductor_url) + "</span>",
+    "<span>LLM mode: <b>" + esc(p.llm_mode) + "</b></span>",
+    "<span>Model: <b>" + esc(p.model) + "</b></span>",
+    "<span>Ollama: " + (p.ollama_up ? '<b class="ok">up</b>' : '<b class="bad">down</b>') + "</span>",
+  ];
+  if (!p.checks) {
+    parts.push('<span>Step-0 checks: not run yet (<code>./convo.sh checks</code>)</span>');
+  } else {
+    const failed = Object.entries(p.checks).filter(([, v]) => v && v.ok === false);
+    parts.push(failed.length
+      ? failed.map(([k, v]) => '<span class="bad">✗ ' + esc(k) + (v.reason ? ": " + esc(v.reason) : "") + "</span>").join("")
+      : '<span class="ok">Step-0 checks: all passed</span>');
+  }
+  document.getElementById("platform").innerHTML = parts.join("");
+}
+
+function renderCards(versions) {
+  document.getElementById("cards").innerHTML = versions.map(v => {
+    const up = v.processes.filter(p => p.healthy).length;
+    const dot = v.running ? "up" : (up ? "part" : "");
+    const status = v.processes.length
+      ? v.processes.map(p => esc(p.name) + " :" + esc(p.port) + (p.healthy ? " ✓" : " ✗")).join(" · ")
+      : "terminal only (no server)";
+    const cmds = v.processes.length
+      ? cmdRow("./convo.sh start " + v.version) + cmdRow("./convo.sh stop " + v.version)
+      : cmdRow("./convo.sh start " + v.version) + cmdRow(v.cli || ("python -m " + v.version + ".chat"));
+    return '<div class="card"><h2><span class="dot ' + dot + '"></span>' + esc(v.version) + " · " + esc(v.title) + "</h2>" +
+      "<p>" + esc(v.summary) + "</p>" +
+      "<div>" + v.features.map(f => '<span class="chip">' + esc(f) + "</span>").join("") + "</div>" +
+      '<p class="procs">' + status + "</p>" +
+      '<div class="links">' + (v.links || []).map(l => '<a target="_blank" href="' + esc(l.url) + '">' + esc(l.label) + "</a>").join("") + "</div>" +
+      cmds + "</div>";
+  }).join("");
+}
+
+function renderTour(versions) {
+  const first = {};
+  versions.forEach(v => v.features.forEach(f => { if (!(f in first)) first[f] = v.version; }));
+  const head = "<tr><th>Feature</th>" + versions.map(v => "<th>" + esc(v.version) + "</th>").join("") + "</tr>";
+  const rows = Object.keys(first).map(f => "<tr><td>" + esc(f) + "</td>" + versions.map(v =>
+    first[f] === v.version ? '<td class="new">new</td>' : (v.features.includes(f) ? '<td class="has">✓</td>' : "<td></td>")
+  ).join("") + "</tr>").join("");
+  document.getElementById("tour").innerHTML = "<table>" + head + rows + "</table>";
+}
+
+async function refresh() {
+  try {
+    const [vs, p] = await Promise.all([fetch("/api/versions").then(r => r.json()), fetch("/api/platform").then(r => r.json())]);
+    renderPlatform(p);
+    renderCards(vs);
+    renderTour(vs);
+  } catch (e) {
+    document.getElementById("platform").innerHTML = '<span class="bad">hub API unreachable: ' + esc(e) + "</span>";
+  }
+}
+
+document.addEventListener("click", e => {
+  const t = e.target.getAttribute && e.target.getAttribute("data-copy");
+  if (t) copy(t, e.target);
+});
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "version": "v3",
+  "title": "Chat that does real work",
+  "summary": "The bot decides (LLM router + Switch) when to call a portfolio API through a Sub Workflow with an HTTP task, and answers with real numbers.",
+  "features": ["Sub Workflow", "HTTP task", "LLM JSON output", "Switch"],
+  "processes": [
+    {"name": "web",  "cmd": ["python", "-m", "v2.server", "--version", "v3", "--port", "8730",
+                             "--title", "Chat that does real work", "--static-dir", "v3/web"],
+     "port": 8730, "health": "/healthz"},
+    {"name": "mock", "cmd": ["python", "-m", "v3.mock_api", "--port", "8731"],
+     "port": 8731, "health": "/healthz"}
+  ],
+  "links": [{"label": "Chat", "url": "http://localhost:8730/"},
+            {"label": "Mock portfolio API", "url": "http://localhost:8731/clients"}],
+  "mock_base_url_port": 8731,
+  "smoke": ["python", "-m", "v3.smoke"]
+}

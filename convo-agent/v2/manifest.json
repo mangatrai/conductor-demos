@@ -1,0 +1,12 @@
+{
+  "version": "v2",
+  "title": "Chat page on a gateway",
+  "summary": "A web chat page; each HTTP call runs one workflow synchronously (API Gateway, local stand-in) and the page resumes a conversation with Get Workflow.",
+  "features": ["API Gateway (local stand-in)", "Sync execution", "Get Workflow resume", "Correlation ID search"],
+  "processes": [
+    {"name": "web", "cmd": ["python", "-m", "v2.server", "--version", "v2", "--port", "8720"],
+     "port": 8720, "health": "/healthz"}
+  ],
+  "links": [{"label": "Chat", "url": "http://localhost:8720/"}],
+  "smoke": ["python", "-m", "v2.smoke"]
+}
