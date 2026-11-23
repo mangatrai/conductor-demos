@@ -11,7 +11,7 @@ convo-agent/common/__init__.py
   llm_mode.py    effective_mode(): CONVO_LLM_MODE or .run/llm_mode (written by checks) or "worker"
   llm_worker.py  chat(input: dict) -> dict (pure call to OLLAMA_URL, returns S3 output); `python -m common.llm_worker`: polls convo_llm_chat (S3)
   checks.py      `python -m common.checks`: Step-0 checks, prints table, writes .run/checks.json + .run/llm_mode
-  ollama.py      ensure_running() via help-scripts start_ollama.sh; ensure_model(); stop()
+  ollama.py      ensure_running() starts `ollama serve` if installed; ensure_model(); stop() what it started
   manifests.py   discover(): sorted glob v*/manifest.json -> list[dict]; select(args) ("all" or names)
   launcher.py    setup|start|stop|status|smoke|list|checks
   tasks/convo_llm_chat.json   task def (retryCount 2, FIXED, responseTimeout 120s)
@@ -62,7 +62,7 @@ requirements.txt: requests, fastapi, uvicorn, mcp, pytest, conductor-python>=2,<
   `cli: "python -m vN.chat"`), `GET /api/platform` = `{flavor, conductor_url, llm_mode, model, ollama_up, checks}`,
   `hub/static/index.html` (platform strip, version cards with start/stop copy buttons, Version tour table, 5 s refresh).
   `convo-agent/README.md`: per-version features, quick start, hub, ports, demo script per version, troubleshooting.
-- Measured on this machine's Conductor OSS: `LLM_CHAT_COMPLETE` and `GET_WORKFLOW` are **unknown task types**
+- Measured on a local Conductor OSS server: `LLM_CHAT_COMPLETE` and `GET_WORKFLOW` are **unknown task types**
   (OSS queues them like SIMPLE tasks, they stay SCHEDULED). Step-0 probes stop after 4 s on a task stuck in
   SCHEDULED and record it as unsupported, so `./convo.sh checks` finishes in ~10 s. Result here:
   `llm_mode = worker`, `get_workflow.ok = false` → `prepare()` rewrites LLM tasks to `convo_llm_chat`

@@ -170,12 +170,8 @@ def cmd_smoke(sel):
 
 
 def cmd_setup(sel):
-    req = os.path.join(APP_DIR, "requirements.txt")
-    uv = shutil.which("uv")
-    pip = [uv, "pip", "install", "--python", sys.executable] if uv else [sys.executable, "-m", "pip", "install"]
-    if os.path.exists(req):
-        subprocess.run(pip + ["-q", "-r", req], cwd=APP_DIR)
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], cwd=APP_DIR, capture_output=True)
+    # convo.sh setup has already installed requirements.txt into this Python (this module imports them).
+    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], cwd=APP_DIR, capture_output=True)
     env, example = os.path.join(APP_DIR, ".env"), os.path.join(APP_DIR, ".env.example")
     if not os.path.exists(env) and os.path.exists(example):
         shutil.copy(example, env)

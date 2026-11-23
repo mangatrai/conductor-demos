@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "convo-v4-wealth-advisor": {
-      "command": "/Users/YOU/.uv/venvs/conductor/bin/python",
+      "command": "/ABSOLUTE/PATH/TO/your-venv/bin/python",
       "args": ["-m", "v4.mcp_server", "--transport", "stdio"],
       "env": {
         "PYTHONPATH": "/ABSOLUTE/PATH/TO/convo-agent",

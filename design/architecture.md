@@ -11,10 +11,10 @@ self-contained, runnable demo of more Conductor features (PRD roadmap). Any vers
 alone, or several at once, from one launcher. All work lives under `convo-agent/` in the repo
 root. Nothing outside `convo-agent/` is created or edited.
 
-Runtime on this machine (verified): **Conductor OSS at `http://localhost:8080/api`**
+Reference runtime (verified): **Conductor OSS at `http://localhost:8080/api`**
 (`CONDUCTOR_FLAVOR=oss` in the repo `.env`), **Ollama** at `http://localhost:11434`
-(started/stopped with `/Users/mrai/sandbox/castles/help-scripts/start_ollama.sh` /
-`stop_ollama.sh`), no Docker. Orkes (cloud) stays supported through the same env vars, but OSS +
+(`./convo.sh` starts `ollama serve` when it is installed and not running, and stops it only if it
+started it), no Docker. Orkes (cloud) stays supported through the same env vars, but OSS +
 Ollama is the path that must work end to end. Orkes-only features (API Gateway, MCP Gateway)
 get a local stand-in on OSS, exactly as the PRD's "fallback" allows; the Orkes configuration is
 documented/scripted alongside.
@@ -38,8 +38,9 @@ v4 swaps the browser for an MCP client (Claude Desktop); v5 swaps the workflow f
 
 ## 2. Shared decisions
 
-- **Language/runtime:** Python 3.13, shared venv `/Users/mrai/.uv/venvs/conductor`
-  (`conductor-python` 2.0.0 installed). No Node, no npm, no bundler: web pages are static
+- **Language/runtime:** Python 3.13 in a uv virtual environment the user creates and activates
+  (`uv venv`; `convo.sh` uses the active `python3`, or `CONVO_PYTHON`), with `conductor-python` 2.x
+  from `requirements.txt`. No Node, no npm, no bundler: web pages are static
   HTML/JS/CSS served by the Python servers.
 - **Layout** (all under `convo-agent/`):
   ```

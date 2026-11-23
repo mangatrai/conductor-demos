@@ -17,9 +17,22 @@ how it was produced.
 
 ## Quick start
 
+You need Python 3.13 and [uv](https://docs.astral.sh/uv/), a Conductor server (local Conductor OSS at
+`http://localhost:8080/api` by default, or Orkes), and an LLM (below).
+
+Create a virtual environment wherever you like and activate it; `convo.sh` uses the `python3` of the
+active environment (or `CONVO_PYTHON` when you set it):
+
+```bash
+uv venv --python 3.13 .venv     # any location works
+source .venv/bin/activate       # Windows: .venv\Scripts\activate
+```
+
+Then:
+
 ```bash
 cd convo-agent
-./convo.sh setup            # install requirements into the venv, create .env, pull qwen2.5:3b
+./convo.sh setup            # install requirements into the active venv, create .env, pull qwen2.5:3b
 ./convo.sh start v2 v3      # register workflows, start the processes and the hub
 ./convo.sh status           # version / process / pid / port / healthy
 open http://localhost:8700/ # the hub
@@ -30,6 +43,18 @@ Other commands: `./convo.sh list` (versions and their features), `./convo.sh smo
 `./convo.sh checks` (Step-0: what this Conductor supports, written to `.run/checks.json`).
 Settings come from `convo-agent/.env` (copy `.env.example`): `CONDUCTOR_SERVER_URL`, `CONDUCTOR_AUTH_KEY`/`SECRET`
 for Orkes, `CONVO_LLM_MODEL`, `CONVO_LLM_MODE` (`auto`|`native`|`worker`), `OLLAMA_URL`.
+
+### The LLM: Ollama here, any provider you like
+
+This exercise uses [Ollama](https://ollama.com) with `qwen2.5:3b`, so everything runs locally for free.
+`./convo.sh setup` and `start` launch `ollama serve` if Ollama is installed but not running, and pull the model.
+
+You are free to use any LLM. Conductor OSS 3.34 has built-in providers for 12 LLM services: OpenAI,
+Azure OpenAI, Anthropic, Google Gemini, AWS Bedrock, Mistral, Cohere, Grok, Perplexity, Hugging Face,
+Ollama and LiteLLM (which fronts many more). Choose whatever fits your needs: configure that provider
+on your Conductor server, then set `CONVO_LLM_PROVIDER` and `CONVO_LLM_MODEL` in `.env` and
+`CONVO_LLM_MODE=native`, so the workflows' LLM tasks call it through Conductor. The `worker` mode
+(the fallback when the server cannot run LLM tasks itself) talks to Ollama only.
 
 ## The hub: http://localhost:8700/
 
@@ -93,7 +118,7 @@ Run several at once (`./convo.sh start all`) and compare them side by side in th
 
 - **Chat turns hang or fail with an LLM error**: Ollama must be running with the model pulled.
   `curl localhost:11434/api/tags` should list `qwen2.5:3b`. Start it with
-  `/Users/mrai/sandbox/castles/help-scripts/start_ollama.sh` and pull the model with `ollama pull qwen2.5:3b`.
+  `ollama serve` and pull the model with `ollama pull qwen2.5:3b`.
   If `.run/llm_mode` says `worker`, the `convo_llm_chat` worker must be running. `./convo.sh start` starts it.
 - **Conductor error / connection refused**: check `CONDUCTOR_SERVER_URL` (default `http://localhost:8080/api`).
   For Orkes, set `CONDUCTOR_AUTH_KEY` and `CONDUCTOR_AUTH_SECRET`. Delete `.run/llm_mode` and run

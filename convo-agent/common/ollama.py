@@ -1,13 +1,13 @@
-"""Ollama lifecycle via the machine's help-scripts."""
+"""Ollama lifecycle: start `ollama serve` when it is installed and not running; stop only what we started."""
 import os
+import shutil
+import signal
 import subprocess
 import time
 
 import requests
 
 from common import RUN_DIR, config
-
-SCRIPTS = "/Users/mrai/sandbox/castles/help-scripts"
 
 
 def _url():
@@ -26,16 +26,16 @@ def tags():
 def ensure_running(wait=30):
     if tags() is not None:
         return True
-    script = os.path.join(SCRIPTS, "start_ollama.sh")
-    if not os.path.exists(script):
+    exe = shutil.which("ollama")
+    if not exe:
         return False
-    try:  # detached: the script backgrounds `ollama serve`, never let it hold our pipes
-        subprocess.Popen(["bash", script], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True).wait(timeout=10)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
+    try:  # detached, so it outlives this command and never holds our pipes
+        proc = subprocess.Popen([exe, "serve"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        return False
     os.makedirs(RUN_DIR, exist_ok=True)
-    open(os.path.join(RUN_DIR, "ollama.started"), "w").write(str(time.time()))
+    open(os.path.join(RUN_DIR, "ollama.started"), "w").write(str(proc.pid))
     deadline = time.time() + wait
     while time.time() < deadline:
         if tags() is not None:
@@ -57,15 +57,13 @@ def ensure_model(model=None):
 
 
 def stop():
+    """Stop Ollama only if ensure_running() started it (its pid is in .run/ollama.started)."""
     marker = os.path.join(RUN_DIR, "ollama.started")
     if not os.path.exists(marker):
         return False
-    script = os.path.join(SCRIPTS, "stop_ollama.sh")
-    if os.path.exists(script):
-        try:
-            subprocess.run(["bash", script], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=30)
-        except subprocess.TimeoutExpired:
-            pass
+    try:
+        os.kill(int(open(marker).read().strip()), signal.SIGTERM)
+    except (ValueError, OSError):
+        pass
     os.remove(marker)
     return True

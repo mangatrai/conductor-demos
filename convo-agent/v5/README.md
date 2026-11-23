@@ -28,9 +28,9 @@ correlation id = session id.
 ## Verify first, then a reported fallback
 
 `python -m v5.probe` prints `{aiEnabled, agentTask, sdkSessionMemory, agentMode, notes}`.
-Result on this machine (local Conductor OSS):
+Result on a local Conductor OSS server:
 
-| check | OSS (this machine) | Orkes |
+| check | OSS (local) | Orkes |
 |---|---|---|
 | `aiEnabled` (Agents API answers) | true | true |
 | `agentTask` (AGENT task runs `wealth_advisor`) | false — "Agent not found: wealth_advisor" | true once the agent is deployed |
